@@ -1,0 +1,62 @@
+[
+  {
+    "username": "nfl",
+    "shortcode": "DOL9uLngKA7",
+    "taken_at": "2025-09-04T16:26:24",
+    "is_video": true,
+    "local_path": "C:\\Users\\jimth\\OneDrive\\Desktop\\Jonty Godfrey\\University\\2025\\Test\\capstone-project\\Pages\\Static\\nfl\\DOL9uLngKA7.mp4",
+    "caption": "It all starts tonight.",
+    "likes": 45889,
+    "comments": 343,
+    "sentiment_label": "POSITIVE",
+    "sentiment_score": 0.999
+  },
+  {
+    "username": "nfl",
+    "shortcode": "DOL3bJIgMEN",
+    "taken_at": "2025-09-04T15:30:10",
+    "is_video": false,
+    "local_path": "C:\\Users\\jimth\\OneDrive\\Desktop\\Jonty Godfrey\\University\\2025\\Test\\capstone-project\\Pages\\Static\\nfl\\DOL3bJIgMEN.jpg",
+    "caption": "The wait is over... Week 1 is here 😎",
+    "likes": 99355,
+    "comments": 579,
+    "sentiment_label": "NEGATIVE",
+    "sentiment_score": 0.995
+  },
+  {
+    "username": "nfl",
+    "shortcode": "DOLfYQVgKu9",
+    "taken_at": "2025-09-04T12:00:12",
+    "is_video": false,
+    "local_path": "C:\\Users\\jimth\\OneDrive\\Desktop\\Jonty Godfrey\\University\\2025\\Test\\capstone-project\\Pages\\Static\\nfl\\DOLfYQVgKu9.jpg",
+    "caption": "32 teams with February dreams. We’re so back.",
+    "likes": 411862,
+    "comments": 2684,
+    "sentiment_label": "POSITIVE",
+    "sentiment_score": 0.993
+  },
+  {
+    "username": "nfl",
+    "shortcode": "DOSVMBTgF62",
+    "taken_at": "2025-09-07T03:45:41",
+    "is_video": false,
+    "local_path": "C:\\Users\\jimth\\OneDrive\\Desktop\\Jonty Godfrey\\University\\2025\\Test\\capstone-project\\Pages\\Static\\nfl\\DOSVMBTgF62.jpg",
+    "caption": "Lions, WR Jameson Williams agree to three-year deal worth a max value of $83M. (via @rapsheet)",
+    "likes": 100293,
+    "comments": 620,
+    "sentiment_label": "NEGATIVE",
+    "sentiment_score": 0.664
+  },
+  {
+    "username": "nfl",
+    "shortcode": "DOR-lr-Afap",
+    "taken_at": "2025-09-07T00:28:41",
+    "is_video": true,
+    "local_path": "C:\\Users\\jimth\\OneDrive\\Desktop\\Jonty Godfrey\\University\\2025\\Test\\capstone-project\\Pages\\Static\\nfl\\DOR-lr-Afap.mp4",
+    "caption": "Full circle moment for Keenan 💛",
+    "likes": 34304,
+    "comments": 100,
+    "sentiment_label": "POSITIVE",
+    "sentiment_score": 0.992
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "username": "mlb",
+    "shortcode": "DOSGwm0Delw",
+    "taken_at": "2025-09-07T01:40:02",
+    "is_video": true,
+    "local_path": "C:\\Users\\jimth\\OneDrive\\Desktop\\Jonty Godfrey\\University\\2025\\Test\\capstone-project\\Pages\\Static\\mlb\\DOSGwm0Delw.mp4",
+    "caption": "CEDDANNE RAFAELA, WE HAVE NO WORDS 🤯",
+    "likes": 126482,
+    "comments": 818,
+    "sentiment_label": "NEGATIVE",
+    "sentiment_score": 0.999
+  },
+  {
+    "username": "mlb",
+    "shortcode": "DOUoraijaCA",
+    "taken_at": "2025-09-08T01:14:29",
+    "is_video": false,
+    "local_path": "C:\\Users\\jimth\\OneDrive\\Desktop\\Jonty Godfrey\\University\\2025\\Test\\capstone-project\\Pages\\Static\\mlb\\DOUoraijaCA.jpg",
+    "caption": "Randy Arozarena and Julio Rodríguez are an ELECTRIC duo ⚡️",
+    "likes": 12635,
+    "comments": 67,
+    "sentiment_label": "POSITIVE",
+    "sentiment_score": 0.998
+  },
+  {
+    "username": "mlb",
+    "shortcode": "DOUh78yD3yK",
+    "taken_at": "2025-09-08T00:15:34",
+    "is_video": false,
+    "local_path": "C:\\Users\\jimth\\OneDrive\\Desktop\\Jonty Godfrey\\University\\2025\\Test\\capstone-project\\Pages\\Static\\mlb\\DOUh78yD3yK.jpg",
+    "caption": "Updated look at the AL East and AL 3rd Wild Card races after a fun weekend 👀",
+    "likes": 27609,
+    "comments": 251,
+    "sentiment_label": "POSITIVE",
+    "sentiment_score": 0.998
+  },
+  {
+    "username": "mlb",
+    "shortcode": "DOUgEAAD0Z9",
+    "taken_at": "2025-09-07T23:59:11",
+    "is_video": false,
+    "local_path": "C:\\Users\\jimth\\OneDrive\\Desktop\\Jonty Godfrey\\University\\2025\\Test\\capstone-project\\Pages\\Static\\mlb\\DOUgEAAD0Z9.jpg",
+    "caption": "-The @Yankees are within 2 games of the Blue Jays for the AL East lead after winning the series!\n\n-The @Brewers complete the sweep behind 7 strong innings from Jacob Misiorowski and a 10-run showing from the offense!\n\n-Shohei Ohtani homers twice as the @Dodgers end a 5-game slide.\n\nSwipe for your Sunday scores ➡️",
+    "likes": 33016,
+    "comments": 202,
+    "sentiment_label": "POSITIVE",
+    "sentiment_score": 0.99
+  },
+  {
+    "username": "mlb",
+    "shortcode": "DOUepvtD3ia",
+    "taken_at": "2025-09-07T23:46:52",
+    "is_video": false,
+    "local_path": "C:\\Users\\jimth\\OneDrive\\Desktop\\Jonty Godfrey\\University\\2025\\Test\\capstone-project\\Pages\\Static\\mlb\\DOUepvtD3ia.jpg",
+    "caption": "Aroldis Chapman’s first career 4-strikeout frame!\n\nHis ERA on the season is down to 0.98 😳",
+    "likes": 58480,
+    "comments": 288,
+    "sentiment_label": "NEGATIVE",
+    "sentiment_score": 0.998
+  }
+]
