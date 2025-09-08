@@ -1,0 +1,62 @@
+[
+  {
+    "username": "nrl",
+    "shortcode": "DOSynvLD97p",
+    "taken_at": "2025-09-07T08:02:52",
+    "is_video": false,
+    "local_path": "C:\\Users\\jimth\\OneDrive\\Desktop\\Jonty Godfrey\\University\\2025\\Test\\capstone-project\\Pages\\Static\\nrl\\DOSynvLD97p.jpg",
+    "caption": "Welcome to the 2025 NRL Telstra Premiership Finals Series 🏆 Time to get to business.",
+    "likes": 32935,
+    "comments": 379,
+    "sentiment_label": "POSITIVE",
+    "sentiment_score": 0.998
+  },
+  {
+    "username": "nrl",
+    "shortcode": "DOOD6Qgk6eD",
+    "taken_at": "2025-09-05T11:57:53",
+    "is_video": false,
+    "local_path": "C:\\Users\\jimth\\OneDrive\\Desktop\\Jonty Godfrey\\University\\2025\\Test\\capstone-project\\Pages\\Static\\nrl\\DOOD6Qgk6eD.jpg",
+    "caption": "LOCKED IN 🔒 \n\nThe top 8 teams have been decided ahead of the 2025 NRL Finals series!",
+    "likes": 46757,
+    "comments": 371,
+    "sentiment_label": "POSITIVE",
+    "sentiment_score": 0.985
+  },
+  {
+    "username": "nrl",
+    "shortcode": "DOQmdDcjgb7",
+    "taken_at": "2025-09-06T11:38:10",
+    "is_video": false,
+    "local_path": "C:\\Users\\jimth\\OneDrive\\Desktop\\Jonty Godfrey\\University\\2025\\Test\\capstone-project\\Pages\\Static\\nrl\\DOQmdDcjgb7.jpg",
+    "caption": "ROAD TO THE GF 🏆\n\nMatch-ups have been locked in for Week 1 of the 2025 NRL Finals series!",
+    "likes": 63599,
+    "comments": 565,
+    "sentiment_label": "NEGATIVE",
+    "sentiment_score": 0.626
+  },
+  {
+    "username": "nrl",
+    "shortcode": "DOU9KCWjlr0",
+    "taken_at": "2025-09-08T04:13:31",
+    "is_video": false,
+    "local_path": "C:\\Users\\jimth\\OneDrive\\Desktop\\Jonty Godfrey\\University\\2025\\Test\\capstone-project\\Pages\\Static\\nrl\\DOU9KCWjlr0.jpg",
+    "caption": "Nicho Hynes is free to play in Saturday's elimination final after his Dangerous Contact charge was downgraded by the Match Review Committee.\n \nHynes was initially facing a one-match ban for a hip drop tackle on Marcelo Montoya, who left the field with an ankle injury.\n \nThe MRC remains satisfied that there is sufficient evidence for a Dangerous Contact charge but has downgraded the offence from Grade 2 to Grade 1 following a new medical report showing Montoya's injury is less serious than initially thought.",
+    "likes": 542,
+    "comments": 11,
+    "sentiment_label": "NEGATIVE",
+    "sentiment_score": 0.997
+  },
+  {
+    "username": "nrl",
+    "shortcode": "DOU8BW5khPJ",
+    "taken_at": "2025-09-08T04:03:55",
+    "is_video": true,
+    "local_path": "C:\\Users\\jimth\\OneDrive\\Desktop\\Jonty Godfrey\\University\\2025\\Test\\capstone-project\\Pages\\Static\\nrl\\DOU8BW5khPJ.mp4",
+    "caption": "After 27 epic rounds, it all comes down to this. One play can define a season. These are the moments that matter. It all begins this weekend 🥁",
+    "likes": 920,
+    "comments": 8,
+    "sentiment_label": "POSITIVE",
+    "sentiment_score": 0.992
+  }
+]

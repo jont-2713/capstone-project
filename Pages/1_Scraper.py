@@ -6,17 +6,22 @@ import streamlit as st
 import instaloader
 from datetime import datetime
 
+# Add Pages/ folder to Python path
+from Pages.sentiment import analyze_sentiment
+
 # ---------- style-------
 st.set_page_config(page_title="Capstone")
 
 # ---------- Setup ----------
 L = instaloader.Instaloader()
-L.context._session.cookies.set("sessionid", "77091777356%3AGvYRV8iFJcEqAa%3A16%3AAYdkQngjsjwxNRcpQ64z-OKZVr9bX6krJ7y2Y1ZQwA")  # replace with your cookie/session
+L.context._session.cookies.set(
+    "sessionid",
+    "77091777356%3AGvYRV8iFJcEqAa%3A16%3AAYdkQngjsjwxNRcpQ64z-OKZVr9bX6krJ7y2Y1ZQwA"
+)  # replace with your cookie/session
 
 st.title("Instagram Scraper with Instaloader")
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "Static")
-
 
 # Input UI
 usernames = st.text_input("Enter Instagram usernames (comma-separated):")
@@ -55,13 +60,16 @@ if st.button("Download Posts"):
                 posts = profile.get_posts()
                 meta_out = []
 
+                # To aggregate sentiment
+                sentiment_counts = {"POSITIVE": 0, "NEGATIVE": 0, "NEUTRAL": 0}
+
                 for i, post in enumerate(posts, start=1):
                     if i > max_posts:
                         break
 
                     is_video = getattr(post, "is_video", False)
                     media_url = getattr(post, "video_url", None) if is_video else post.url
-                    if not media_url:  # fallback if video url not available
+                    if not media_url:  # fallback
                         media_url = post.url
                         is_video = False
 
@@ -70,32 +78,68 @@ if st.button("Download Posts"):
                     filename = f"{shortcode}.{ext}"
                     out_path = os.path.join(user_dir, filename)
 
-                    # Download to Static/<username>/
                     try:
                         download_file(media_url, out_path)
                     except Exception as dl_err:
                         st.error(f"Failed to download {username} post {i}: {dl_err}")
                         continue
 
-                    # Show immediately in Streamlit from saved file
-                    if is_video:
-                        st.video(out_path)
-                    else:
-                        st.image(out_path, caption=(post.caption or "")[:100] + "...")
+                    # Caption + Sentiment
+                    caption = post.caption or ""
+                    sentiment = analyze_sentiment(caption)
 
-                    # Collect metadata
+                    # Aggregate counts
+                    sentiment_counts[sentiment["label"]] += 1
+
+                    # Collect metadata (optional: keep sentiment per post)
                     meta_out.append({
                         "username": profile.username,
                         "shortcode": shortcode,
                         "taken_at": datetime.fromtimestamp(post.date_utc.timestamp()).isoformat(),
                         "is_video": is_video,
                         "local_path": out_path,
-                        "caption": post.caption or "",
+                        "caption": caption,
                         "likes": getattr(post, "likes", None),
                         "comments": getattr(post, "comments", None),
+                        "sentiment_label": sentiment["label"],
+                        "sentiment_score": sentiment["score"],
                     })
 
-                    time.sleep(0.5)  # be gentle to IG
+                    time.sleep(0.5)  # gentle to IG
+
+                # Determine overall sentiment
+                total_posts = sum(sentiment_counts.values())
+                if total_posts == 0:
+                    st.info("No posts were analyzed for sentiment.")
+                else:
+                    overall_sentiment = max(sentiment_counts, key=sentiment_counts.get)
+                    count = sentiment_counts[overall_sentiment]
+                    sentiment_text = f"{overall_sentiment} ({count}/{total_posts} posts)"
+
+                    st.markdown(f"### Overall Sentiment for {username}:")
+                    if overall_sentiment == "POSITIVE":
+                        st.success(sentiment_text)
+                    elif overall_sentiment == "NEGATIVE":
+                        st.error(sentiment_text)
+                    else:
+                        st.info(sentiment_text)
+
+                # ---------- Optional Detailed View ----------
+                if total_posts > 0:
+                    with st.expander("See detailed per-post sentiment"):
+                        for post_data in meta_out:
+                            label = post_data["sentiment_label"]
+                            score = post_data["sentiment_score"]
+                            caption_preview = (post_data["caption"][:100] + "...") if post_data["caption"] else "(No caption)"
+                            shortcode = post_data["shortcode"]
+
+                            if label == "POSITIVE":
+                                st.success(f"{shortcode}: {label} ({score:.2f}) — {caption_preview}")
+                            elif label == "NEGATIVE":
+                                st.error(f"{shortcode}: {label} ({score:.2f}) — {caption_preview}")
+                            else:
+                                st.info(f"{shortcode}: {label} ({score:.2f}) — {caption_preview}")
+
 
                 # Save metadata.json
                 meta_file = os.path.join(user_dir, "metadata.json")
