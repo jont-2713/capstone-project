@@ -5,9 +5,42 @@ import requests
 import streamlit as st
 import instaloader
 from datetime import datetime
+import numpy as np
+from PIL import Image
+from tensorflow import keras
 
 # ---------- style-------
 st.set_page_config(page_title="Capstone")
+
+# ---------- Image Sentiment Model ----------
+MODEL_DIR = os.path.expanduser(r"~\capstone-project\Pages\image-sentiment\model")
+MODEL_PATH = os.path.join(MODEL_DIR, "model.keras")
+META_PATH  = os.path.join(MODEL_DIR, "metadata.json")
+
+@st.cache_resource  # cache across reruns
+def load_model_and_meta():
+    model = keras.models.load_model(MODEL_PATH)
+    with open(META_PATH, "r", encoding="utf-8") as f:
+        meta = json.load(f)
+    label_names = meta["label_names"]
+    img_size = int(meta["img_size"])
+    return model, label_names, img_size
+
+model, LABEL_NAMES, IMG_SIZE = load_model_and_meta()
+
+def preprocess_for_model(img_path: str, img_size: int) -> np.ndarray:
+    img = Image.open(img_path).convert("RGB").resize((img_size, img_size))
+    arr = np.asarray(img, dtype=np.float32) / 255.0
+    return np.expand_dims(arr, 0)  # (1, H, W, 3)
+
+def predict_image(img_path: str):
+    x = preprocess_for_model(img_path, IMG_SIZE)
+    probs = model.predict(x, verbose=0)[0]        # shape: (num_classes,)
+    pred_idx = int(np.argmax(probs))
+    pred_label = LABEL_NAMES[pred_idx]
+    pred_conf  = float(probs[pred_idx])
+    return pred_label, pred_conf, probs.tolist()
+
 
 # ---------- Setup ----------
 L = instaloader.Instaloader()
@@ -77,11 +110,37 @@ if st.button("Download Posts"):
                         st.error(f"Failed to download {username} post {i}: {dl_err}")
                         continue
 
-                    # Show immediately in Streamlit from saved file
+                    prediction = None
+
+                    # Show & predict
                     if is_video:
                         st.video(out_path)
                     else:
-                        st.image(out_path, caption=(post.caption or "")[:100] + "...")
+                        # Run model prediction on the saved image
+                        pred_label, pred_conf, probs_list = predict_image(out_path)
+                        st.image(
+                            out_path,
+                            caption=(post.caption or "")[:100] + "...",
+                            use_container_width=True
+                        )
+                        st.write(f"**Prediction:** {pred_label}")
+
+                    # Collect metadata + prediction
+                    prediction = {
+                        "label": pred_label if not is_video else None,
+                    }
+
+                    meta_out.append({
+                        "username": profile.username,
+                        "shortcode": shortcode,
+                        "taken_at": datetime.fromtimestamp(post.date_utc.timestamp()).isoformat(),
+                        "is_video": is_video,
+                        "local_path": out_path,
+                        "caption": post.caption or "",
+                        "likes": getattr(post, "likes", None),
+                        "comments": getattr(post, "comments", None),
+                        "prediction": prediction,            # <<— added
+                    })
 
                     # Collect metadata
                     meta_out.append({
