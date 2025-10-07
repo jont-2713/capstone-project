@@ -44,12 +44,14 @@ def predict_image(img_path: str):
 
 # ---------- Setup ----------
 L = instaloader.Instaloader()
-L.context._session.cookies.set("sessionid", "77091777356%3AGvYRV8iFJcEqAa%3A16%3AAYdkQngjsjwxNRcpQ64z-OKZVr9bX6krJ7y2Y1ZQwA")  # replace with your cookie/session
+L.context._session.cookies.set(
+    "sessionid",
+    "77091777356%3AGvYRV8iFJcEqAa%3A16%3AAYdkQngjsjwxNRcpQ64z-OKZVr9bX6krJ7y2Y1ZQwA"
+)
 
 st.title("Instagram Scraper with Instaloader")
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "Static")
-
 
 # Input UI
 usernames = st.text_input("Enter Instagram usernames (comma-separated):")
@@ -74,12 +76,10 @@ if st.button("Download Posts"):
     else:
         for username in [u.strip() for u in usernames.split(",") if u.strip()]:
             try:
-                # Make per-user folder inside Static/
                 user_dir = os.path.join(STATIC_DIR, safe_filename(username))
                 os.makedirs(user_dir, exist_ok=True)
 
                 profile = instaloader.Profile.from_username(L.context, username)
-
                 st.markdown(f"### **User:** {profile.username}")
                 st.write(f"Followers: {profile.followers}")
                 st.write(f"Following: {profile.followees}")
@@ -87,6 +87,7 @@ if st.button("Download Posts"):
 
                 posts = profile.get_posts()
                 meta_out = []
+                sentiment_counts = {"POSITIVE": 0, "NEGATIVE": 0, "NEUTRAL": 0}
 
                 for i, post in enumerate(posts, start=1):
                     if i > max_posts:
@@ -94,7 +95,7 @@ if st.button("Download Posts"):
 
                     is_video = getattr(post, "is_video", False)
                     media_url = getattr(post, "video_url", None) if is_video else post.url
-                    if not media_url:  # fallback if video url not available
+                    if not media_url:
                         media_url = post.url
                         is_video = False
 
@@ -103,7 +104,6 @@ if st.button("Download Posts"):
                     filename = f"{shortcode}.{ext}"
                     out_path = os.path.join(user_dir, filename)
 
-                    # Download to Static/<username>/
                     try:
                         download_file(media_url, out_path)
                     except Exception as dl_err:
@@ -142,24 +142,29 @@ if st.button("Download Posts"):
                         "prediction": prediction,            # <<— added
                     })
 
-                    # Collect metadata
                     meta_out.append({
                         "username": profile.username,
                         "shortcode": shortcode,
                         "taken_at": datetime.fromtimestamp(post.date_utc.timestamp()).isoformat(),
                         "is_video": is_video,
                         "local_path": out_path,
-                        "caption": post.caption or "",
+                        "caption": caption,
                         "likes": getattr(post, "likes", None),
                         "comments": getattr(post, "comments", None),
+                        "prediction": prediction,
+                        "sentiment_label": sentiment["label"],
+                        "sentiment_score": sentiment["score"],
                     })
 
-                    time.sleep(0.5)  # be gentle to IG
+                    time.sleep(0.5)
 
-                # Save metadata.json
+                # Save metadata
                 meta_file = os.path.join(user_dir, "metadata.json")
                 with open(meta_file, "w", encoding="utf-8") as f:
                     json.dump(meta_out, f, indent=2, ensure_ascii=False)
+
+                st.write("### Overall Caption Sentiment")
+                st.write(sentiment_counts)
 
                 st.success(f"Saved {len(meta_out)} posts for {username} into {user_dir}")
                 st.caption(f"Metadata: {meta_file}")
