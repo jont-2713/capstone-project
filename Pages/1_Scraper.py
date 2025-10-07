@@ -5,19 +5,51 @@ import requests
 import streamlit as st
 import instaloader
 from datetime import datetime
-
-# Add Pages/ folder to Python path
-from Pages.sentiment import analyze_sentiment
+import numpy as np
+from PIL import Image
+from tensorflow import keras
 
 # ---------- style-------
 st.set_page_config(page_title="Capstone")
+
+# --------- Text Sentiment Model ------------
+from Pages.sentiment import analyze_sentiment
+
+# ---------- Image Sentiment Model ----------
+MODEL_DIR = os.path.join(os.path.dirname(__file__), "image-sentiment", "model")
+MODEL_PATH = os.path.join(MODEL_DIR, "model.keras")
+META_PATH  = os.path.join(MODEL_DIR, "metadata.json")
+
+@st.cache_resource
+def load_model_and_meta():
+    model = keras.models.load_model(MODEL_PATH)
+    with open(META_PATH, "r", encoding="utf-8") as f:
+        meta = json.load(f)
+    label_names = meta["label_names"]
+    img_size = int(meta["img_size"])
+    return model, label_names, img_size
+
+model, LABEL_NAMES, IMG_SIZE = load_model_and_meta()
+
+def preprocess_for_model(img_path: str, img_size: int) -> np.ndarray:
+    img = Image.open(img_path).convert("RGB").resize((img_size, img_size))
+    arr = np.asarray(img, dtype=np.float32) / 255.0
+    return np.expand_dims(arr, 0)
+
+def predict_image(img_path: str):
+    x = preprocess_for_model(img_path, IMG_SIZE)
+    probs = model.predict(x, verbose=0)[0]
+    pred_idx = int(np.argmax(probs))
+    pred_label = LABEL_NAMES[pred_idx]
+    pred_conf  = float(probs[pred_idx])
+    return pred_label, pred_conf, probs.tolist()
 
 # ---------- Setup ----------
 L = instaloader.Instaloader()
 L.context._session.cookies.set(
     "sessionid",
     "77091777356%3AGvYRV8iFJcEqAa%3A16%3AAYdkQngjsjwxNRcpQ64z-OKZVr9bX6krJ7y2Y1ZQwA"
-)  # replace with your cookie/session
+)
 
 st.title("Instagram Scraper with Instaloader")
 
@@ -46,12 +78,10 @@ if st.button("Download Posts"):
     else:
         for username in [u.strip() for u in usernames.split(",") if u.strip()]:
             try:
-                # Make per-user folder inside Static/
                 user_dir = os.path.join(STATIC_DIR, safe_filename(username))
                 os.makedirs(user_dir, exist_ok=True)
 
                 profile = instaloader.Profile.from_username(L.context, username)
-
                 st.markdown(f"### **User:** {profile.username}")
                 st.write(f"Followers: {profile.followers}")
                 st.write(f"Following: {profile.followees}")
@@ -59,8 +89,6 @@ if st.button("Download Posts"):
 
                 posts = profile.get_posts()
                 meta_out = []
-
-                # To aggregate sentiment
                 sentiment_counts = {"POSITIVE": 0, "NEGATIVE": 0, "NEUTRAL": 0}
 
                 for i, post in enumerate(posts, start=1):
@@ -69,7 +97,7 @@ if st.button("Download Posts"):
 
                     is_video = getattr(post, "is_video", False)
                     media_url = getattr(post, "video_url", None) if is_video else post.url
-                    if not media_url:  # fallback
+                    if not media_url:
                         media_url = post.url
                         is_video = False
 
@@ -84,14 +112,29 @@ if st.button("Download Posts"):
                         st.error(f"Failed to download {username} post {i}: {dl_err}")
                         continue
 
-                    # Caption + Sentiment
+                    prediction = None
+
+                    # Image sentiment
+                    if is_video:
+                        st.video(out_path)
+                    else:
+                        pred_label, pred_conf, probs_list = predict_image(out_path)
+                        st.image(out_path, caption=(post.caption or "")[:100] + "...")
+                        st.write(f"**Prediction (Image):** {pred_label}")
+                        prediction = {"label": pred_label}
+
+                    # Text sentiment
                     caption = post.caption or ""
                     sentiment = analyze_sentiment(caption)
-
-                    # Aggregate counts
                     sentiment_counts[sentiment["label"]] += 1
+                    if caption:
+                        if sentiment["label"] == "POSITIVE":
+                            st.success(f"Caption Sentiment: {sentiment['label']} ({sentiment['score']:.2f})")
+                        elif sentiment["label"] == "NEGATIVE":
+                            st.error(f"Caption Sentiment: {sentiment['label']} ({sentiment['score']:.2f})")
+                        else:
+                            st.info(f"Caption Sentiment: {sentiment['label']} ({sentiment['score']:.2f})")
 
-                    # Collect metadata (optional: keep sentiment per post)
                     meta_out.append({
                         "username": profile.username,
                         "shortcode": shortcode,
@@ -101,50 +144,20 @@ if st.button("Download Posts"):
                         "caption": caption,
                         "likes": getattr(post, "likes", None),
                         "comments": getattr(post, "comments", None),
+                        "prediction": prediction,
                         "sentiment_label": sentiment["label"],
                         "sentiment_score": sentiment["score"],
                     })
 
-                    time.sleep(0.5)  # gentle to IG
+                    time.sleep(0.5)
 
-                # Determine overall sentiment
-                total_posts = sum(sentiment_counts.values())
-                if total_posts == 0:
-                    st.info("No posts were analyzed for sentiment.")
-                else:
-                    overall_sentiment = max(sentiment_counts, key=sentiment_counts.get)
-                    count = sentiment_counts[overall_sentiment]
-                    sentiment_text = f"{overall_sentiment} ({count}/{total_posts} posts)"
-
-                    st.markdown(f"### Overall Sentiment for {username}:")
-                    if overall_sentiment == "POSITIVE":
-                        st.success(sentiment_text)
-                    elif overall_sentiment == "NEGATIVE":
-                        st.error(sentiment_text)
-                    else:
-                        st.info(sentiment_text)
-
-                # ---------- Optional Detailed View ----------
-                if total_posts > 0:
-                    with st.expander("See detailed per-post sentiment"):
-                        for post_data in meta_out:
-                            label = post_data["sentiment_label"]
-                            score = post_data["sentiment_score"]
-                            caption_preview = (post_data["caption"][:100] + "...") if post_data["caption"] else "(No caption)"
-                            shortcode = post_data["shortcode"]
-
-                            if label == "POSITIVE":
-                                st.success(f"{shortcode}: {label} ({score:.2f}) — {caption_preview}")
-                            elif label == "NEGATIVE":
-                                st.error(f"{shortcode}: {label} ({score:.2f}) — {caption_preview}")
-                            else:
-                                st.info(f"{shortcode}: {label} ({score:.2f}) — {caption_preview}")
-
-
-                # Save metadata.json
+                # Save metadata
                 meta_file = os.path.join(user_dir, "metadata.json")
                 with open(meta_file, "w", encoding="utf-8") as f:
                     json.dump(meta_out, f, indent=2, ensure_ascii=False)
+
+                st.write("### Overall Caption Sentiment")
+                st.write(sentiment_counts)
 
                 st.success(f"Saved {len(meta_out)} posts for {username} into {user_dir}")
                 st.caption(f"Metadata: {meta_file}")
