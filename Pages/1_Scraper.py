@@ -12,15 +12,12 @@ from tensorflow import keras
 # ---------- style-------
 st.set_page_config(page_title="Capstone")
 
-# --------- Text Sentiment Model ------------
-from Pages.sentiment import analyze_sentiment
-
 # ---------- Image Sentiment Model ----------
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "image-sentiment", "model")
+MODEL_DIR = os.path.expanduser(r"~\capstone-project\Pages\image-sentiment\model")
 MODEL_PATH = os.path.join(MODEL_DIR, "model.keras")
 META_PATH  = os.path.join(MODEL_DIR, "metadata.json")
 
-@st.cache_resource
+@st.cache_resource  # cache across reruns
 def load_model_and_meta():
     model = keras.models.load_model(MODEL_PATH)
     with open(META_PATH, "r", encoding="utf-8") as f:
@@ -34,15 +31,16 @@ model, LABEL_NAMES, IMG_SIZE = load_model_and_meta()
 def preprocess_for_model(img_path: str, img_size: int) -> np.ndarray:
     img = Image.open(img_path).convert("RGB").resize((img_size, img_size))
     arr = np.asarray(img, dtype=np.float32) / 255.0
-    return np.expand_dims(arr, 0)
+    return np.expand_dims(arr, 0)  # (1, H, W, 3)
 
 def predict_image(img_path: str):
     x = preprocess_for_model(img_path, IMG_SIZE)
-    probs = model.predict(x, verbose=0)[0]
+    probs = model.predict(x, verbose=0)[0]        # shape: (num_classes,)
     pred_idx = int(np.argmax(probs))
     pred_label = LABEL_NAMES[pred_idx]
     pred_conf  = float(probs[pred_idx])
     return pred_label, pred_conf, probs.tolist()
+
 
 # ---------- Setup ----------
 L = instaloader.Instaloader()
@@ -114,26 +112,35 @@ if st.button("Download Posts"):
 
                     prediction = None
 
-                    # Image sentiment
+                    # Show & predict
                     if is_video:
                         st.video(out_path)
                     else:
+                        # Run model prediction on the saved image
                         pred_label, pred_conf, probs_list = predict_image(out_path)
-                        st.image(out_path, caption=(post.caption or "")[:100] + "...")
-                        st.write(f"**Prediction (Image):** {pred_label}")
-                        prediction = {"label": pred_label}
+                        st.image(
+                            out_path,
+                            caption=(post.caption or "")[:100] + "...",
+                            use_container_width=True
+                        )
+                        st.write(f"**Prediction:** {pred_label}")
 
-                    # Text sentiment
-                    caption = post.caption or ""
-                    sentiment = analyze_sentiment(caption)
-                    sentiment_counts[sentiment["label"]] += 1
-                    if caption:
-                        if sentiment["label"] == "POSITIVE":
-                            st.success(f"Caption Sentiment: {sentiment['label']} ({sentiment['score']:.2f})")
-                        elif sentiment["label"] == "NEGATIVE":
-                            st.error(f"Caption Sentiment: {sentiment['label']} ({sentiment['score']:.2f})")
-                        else:
-                            st.info(f"Caption Sentiment: {sentiment['label']} ({sentiment['score']:.2f})")
+                    # Collect metadata + prediction
+                    prediction = {
+                        "label": pred_label if not is_video else None,
+                    }
+
+                    meta_out.append({
+                        "username": profile.username,
+                        "shortcode": shortcode,
+                        "taken_at": datetime.fromtimestamp(post.date_utc.timestamp()).isoformat(),
+                        "is_video": is_video,
+                        "local_path": out_path,
+                        "caption": post.caption or "",
+                        "likes": getattr(post, "likes", None),
+                        "comments": getattr(post, "comments", None),
+                        "prediction": prediction,            # <<— added
+                    })
 
                     meta_out.append({
                         "username": profile.username,
