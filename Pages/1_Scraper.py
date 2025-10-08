@@ -8,8 +8,6 @@ from datetime import datetime
 import numpy as np
 from PIL import Image
 from tensorflow import keras
-
-# NEW: ephemeral storage bits
 import tempfile
 import shutil
 import atexit
@@ -58,7 +56,7 @@ L.context._session.cookies.set(
 
 st.title("Instagram Scraper with Instaloader")
 
-# ---------- EPHEMERAL STATIC DIR (auto-deletes on exit) ----------
+# ----------  STATIC DIR (auto-deletes on exit) ----------
 # Create a unique temp root and a "Static" subdir
 TEMP_ROOT = tempfile.mkdtemp(prefix="streamlit_static_")
 STATIC_DIR = os.path.join(TEMP_ROOT, "Static")
@@ -79,7 +77,7 @@ st.session_state["storage_paths"] = {
 }        
 
 # show where files live during runtime
-st.sidebar.caption(f"📁 Temp folder (auto-delete): {STATIC_DIR}")
+st.sidebar.caption(f"Temp folder (auto-delete): {STATIC_DIR}")
 
 # ---------- Session State  ----------
 def _init_state():
@@ -234,7 +232,7 @@ if do_scrape:
             except Exception as e:
                 st.error(f"Failed for {username}: {e}")
 
-# ---------- Render from cache (survives page navigation) ----------
+# ---------- Render from cache  ----------
 if S["users"]:
     st.markdown("### Cached results")
     tabs = st.tabs(S["users"])
