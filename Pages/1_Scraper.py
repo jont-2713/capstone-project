@@ -9,6 +9,11 @@ import numpy as np
 from PIL import Image
 from tensorflow import keras
 
+# NEW: ephemeral storage bits
+import tempfile
+import shutil
+import atexit
+
 # ---------- style-------
 st.set_page_config(page_title="Capstone")
 
@@ -53,11 +58,61 @@ L.context._session.cookies.set(
 
 st.title("Instagram Scraper with Instaloader")
 
-STATIC_DIR = os.path.join(os.path.dirname(__file__), "Static")
+# ---------- EPHEMERAL STATIC DIR (auto-deletes on exit) ----------
+# Create a unique temp root and a "Static" subdir
+TEMP_ROOT = tempfile.mkdtemp(prefix="streamlit_static_")
+STATIC_DIR = os.path.join(TEMP_ROOT, "Static")
+os.makedirs(STATIC_DIR, exist_ok=True)
 
-# Input UI
-usernames = st.text_input("Enter Instagram usernames (comma-separated):")
-max_posts = st.slider("Max posts per user", 5, 100, 20)
+# Register cleanup when the Python process exits
+@atexit.register
+def _cleanup_temp_root():
+    try:
+        shutil.rmtree(TEMP_ROOT, ignore_errors=True)
+        print(f"[cleanup] removed {TEMP_ROOT}")
+    except Exception as e:
+        print(f"[cleanup] failed to remove {TEMP_ROOT}: {e}")
+
+st.session_state["storage_paths"] = {
+    "TEMP_ROOT": TEMP_ROOT,
+    "STATIC_DIR": STATIC_DIR,
+}        
+
+# show where files live during runtime
+st.sidebar.caption(f"📁 Temp folder (auto-delete): {STATIC_DIR}")
+
+# ---------- Session State  ----------
+def _init_state():
+    if "scrape_state" not in st.session_state:
+        st.session_state.scrape_state = {
+            "last_input": "",
+            "max_posts": 20,
+            "users": [],
+            "runs": {},  # username -> cached results
+        }
+_init_state()
+S = st.session_state.scrape_state
+
+# ---------- Input UI ----------
+usernames_raw = st.text_area(
+    "Enter Instagram usernames (comma, space, or newline-separated):",
+    value=S["last_input"],
+    key="usernames_raw_input",
+    placeholder="e.g. nasa, natgeo\nsomeuser anotheruser"
+)
+S["last_input"] = st.session_state.get("usernames_raw_input", "")
+
+max_posts = st.slider("Max posts per user", 1, 100, S["max_posts"], key="max_posts_slider")
+S["max_posts"] = max_posts
+
+def parse_usernames(s: str):
+    parts = [p.strip() for chunk in s.replace(",", " ").split() for p in [chunk]]
+    seen, out = set(), []
+    for p in parts:
+        if p and p.lower() not in seen:
+            seen.add(p.lower())
+            out.append(p)
+    return out
 
 # ---------- Helpers ----------
 def safe_filename(name: str) -> str:
@@ -71,28 +126,45 @@ def download_file(url: str, out_path: str, timeout: int = 30):
             if chunk:
                 f.write(chunk)
 
-# ---------- Action ----------
-if st.button("Download Posts"):
-    if not usernames.strip():
+# ---------- Actions ----------
+colA, colB = st.columns([1, 1])
+do_scrape = colA.button("Download / Update Posts")
+do_clear  = colB.button("Clear cached results")
+
+if do_clear:
+    S["users"].clear()
+    S["runs"].clear()
+    st.success("Cleared cached results")
+
+if do_scrape:
+    users = parse_usernames(S["last_input"])
+    if not users:
         st.warning("Please enter at least one username.")
     else:
-        for username in [u.strip() for u in usernames.split(",") if u.strip()]:
+        for u in users:
+            if u not in S["users"]:
+                S["users"].append(u)
+
+        st.success(f"Scraping {len(users)} user(s): {', '.join(users)}")
+
+        for username in users:
             try:
                 user_dir = os.path.join(STATIC_DIR, safe_filename(username))
                 os.makedirs(user_dir, exist_ok=True)
 
-                profile = instaloader.Profile.from_username(L.context, username)
-                st.markdown(f"### **User:** {profile.username}")
-                st.write(f"Followers: {profile.followers}")
-                st.write(f"Following: {profile.followees}")
-                st.write(f"Posts: {profile.mediacount}")
+                with st.status(f"Fetching profile: {username}", expanded=True) as status:
+                    profile = instaloader.Profile.from_username(L.context, username)
+                    status.update(label=f"Fetched profile: {username}")
 
                 posts = profile.get_posts()
                 meta_out = []
                 sentiment_counts = {"POSITIVE": 0, "NEGATIVE": 0, "NEUTRAL": 0}
 
+                total = min(S["max_posts"], profile.mediacount or S["max_posts"])
+                prog = st.progress(0, text=f"Downloading up to {total} posts for @{profile.username}…")
+
                 for i, post in enumerate(posts, start=1):
-                    if i > max_posts:
+                    if i > S["max_posts"]:
                         break
 
                     is_video = getattr(post, "is_video", False)
@@ -113,27 +185,13 @@ if st.button("Download Posts"):
                         continue
 
                     prediction = None
-
-                    # Image sentiment
-                    if is_video:
-                        st.video(out_path)
-                    else:
+                    if not is_video:
                         pred_label, pred_conf, probs_list = predict_image(out_path)
-                        st.image(out_path, caption=(post.caption or "")[:100] + "...")
-                        st.write(f"**Prediction (Image):** {pred_label}")
-                        prediction = {"label": pred_label}
+                        prediction = {"label": pred_label, "confidence": pred_conf, "probs": probs_list}
 
-                    # Text sentiment
                     caption = post.caption or ""
                     sentiment = analyze_sentiment(caption)
                     sentiment_counts[sentiment["label"]] += 1
-                    if caption:
-                        if sentiment["label"] == "POSITIVE":
-                            st.success(f"Caption Sentiment: {sentiment['label']} ({sentiment['score']:.2f})")
-                        elif sentiment["label"] == "NEGATIVE":
-                            st.error(f"Caption Sentiment: {sentiment['label']} ({sentiment['score']:.2f})")
-                        else:
-                            st.info(f"Caption Sentiment: {sentiment['label']} ({sentiment['score']:.2f})")
 
                     meta_out.append({
                         "username": profile.username,
@@ -149,18 +207,75 @@ if st.button("Download Posts"):
                         "sentiment_score": sentiment["score"],
                     })
 
-                    time.sleep(0.5)
+                    time.sleep(0.4)
+                    prog.progress(min(i, total) / total, text=f"Downloaded {min(i, total)}/{total}")
 
-                # Save metadata
+                # write metadata to disk inside temp user dir
                 meta_file = os.path.join(user_dir, "metadata.json")
                 with open(meta_file, "w", encoding="utf-8") as f:
                     json.dump(meta_out, f, indent=2, ensure_ascii=False)
 
-                st.write("### Overall Caption Sentiment")
-                st.write(sentiment_counts)
+                # cache this run in session_state for page nav restore
+                S["runs"][username] = {
+                    "username": profile.username,
+                    "followers": profile.followers,
+                    "followees": profile.followees,
+                    "mediacount": profile.mediacount,
+                    "sentiment_counts": sentiment_counts,
+                    "user_dir": user_dir,
+                    "meta_file": meta_file,
+                    "posts": meta_out,
+                    "max_posts_used": S["max_posts"],
+                    "last_updated": datetime.now().isoformat(timespec="seconds"),
+                }
 
-                st.success(f"Saved {len(meta_out)} posts for {username} into {user_dir}")
-                st.caption(f"Metadata: {meta_file}")
+                st.success(f"Saved {len(meta_out)} posts for **{username}** → `{user_dir}`")
 
             except Exception as e:
                 st.error(f"Failed for {username}: {e}")
+
+# ---------- Render from cache (survives page navigation) ----------
+if S["users"]:
+    st.markdown("### Cached results")
+    tabs = st.tabs(S["users"])
+    for tab, username in zip(tabs, S["users"]):
+        with tab:
+            data = S["runs"].get(username)
+            if not data:
+                st.info("No cached data yet for this user. Click Download / Update Posts.")
+                continue
+
+            st.caption(f"Last updated: {data['last_updated']}")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Followers", f"{data['followers']:,}")
+            col2.metric("Following", f"{data['followees']:,}")
+            col3.metric("Posts", f"{data['mediacount']:,}")
+
+            st.markdown("#### Overall Caption Sentiment")
+            st.write(data["sentiment_counts"])
+
+            st.markdown("#### Recent items")
+            for item in data["posts"][: min(len(data["posts"]), 10)]:
+                with st.expander(f"{item['shortcode']} — {('video' if item['is_video'] else 'image')}", expanded=False):
+                    if item["is_video"]:
+                        st.video(item["local_path"])
+                    else:
+                        st.image(item["local_path"])
+                        if item["prediction"]:
+                            st.write(f"**Prediction (Image):** {item['prediction']['label']} ({item['prediction']['confidence']:.2f})")
+
+                    cap = item["caption"] or ""
+                    if cap:
+                        st.write(cap[:200] + ("…" if len(cap) > 200 else ""))
+                    lab = item["sentiment_label"]
+                    score = item["sentiment_score"]
+                    if lab == "POSITIVE":
+                        st.success(f"Caption Sentiment: {lab} ({score:.2f})")
+                    elif lab == "NEGATIVE":
+                        st.error(f"Caption Sentiment: {lab} ({score:.2f})")
+                    else:
+                        st.info(f"Caption Sentiment: {lab} ({score:.2f})")
+
+            st.caption(f"Metadata file: {data['meta_file']}")
+else:
+    st.info("No cached runs yet. Add usernames and click **Download / Update Posts**.")
