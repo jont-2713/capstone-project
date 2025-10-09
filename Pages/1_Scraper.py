@@ -51,7 +51,7 @@ def predict_image(img_path: str):
 L = instaloader.Instaloader()
 L.context._session.cookies.set(
     "sessionid",
-    "77091777356%3AGvYRV8iFJcEqAa%3A16%3AAYdkQngjsjwxNRcpQ64z-OKZVr9bX6krJ7y2Y1ZQwA"
+    "3183460804%3AmNXrsOvcwU1BhF%3A10%3AAYjgI8ubfK32AkTj-4U2sSZ0IO63qdLfHNpgALHmxA"
 )
 
 st.title("Instagram Scraper with Instaloader")
