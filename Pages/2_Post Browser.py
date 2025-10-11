@@ -9,7 +9,11 @@ st.title("Post Browser")
 # ---------- Guards ----------
 if "scrape_state" not in st.session_state:
     st.info("No scrape state found. Go to the Scraper page, run a scrape, then come back.")
+    if st.button("Go to Scraper"):
+        st.switch_page("Pages/1_Scraper.py")
     st.stop()
+    
+
 
 S = st.session_state.scrape_state
 RUNS = S.get("runs", {})
