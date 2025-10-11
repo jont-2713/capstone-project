@@ -55,7 +55,7 @@ L.context._session.cookies.set(
     "3183460804%3AmNXrsOvcwU1BhF%3A10%3AAYjgI8ubfK32AkTj-4U2sSZ0IO63qdLfHNpgALHmxA"
 )
 
-st.title("Instagram Scraper with Instaloader")
+st.title("Instagram Scraper")
 
 # ----------  STATIC DIR (auto-deletes on exit) ----------
 TEMP_ROOT = tempfile.mkdtemp(prefix="streamlit_static_")
@@ -304,7 +304,8 @@ if do_scrape:
 
 # ---------- Render from cache  ----------
 if S["users"]:
-    st.markdown("### Cached results")
+    st.markdown("### Results Preview")
+    
     tabs = st.tabs(S["users"])
     for tab, username in zip(tabs, S["users"]):
         with tab:
@@ -331,7 +332,8 @@ if S["users"]:
             except Exception as e:
                 st.caption(f"(Profile image unavailable: {e})")                 
 
-            
+            if st.button("Click to browse Posts"):
+                st.switch_page("Pages/2_Post Browser.py")
 
             st.caption(f"Last updated: {data['last_updated']}")
             col1, col2, col3 = st.columns(3)

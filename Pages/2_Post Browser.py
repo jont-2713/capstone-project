@@ -17,6 +17,8 @@ USERS = [u for u in S.get("users", []) if u in RUNS] or list(RUNS.keys())
 
 if not USERS or not RUNS:
     st.info("No cached data found. Please scrape some users first.")
+    if st.button("Go to Scraper"):
+        st.switch_page("Pages/1_Scraper.py")
     st.stop()
 
 # ---------- Helpers ----------
@@ -55,7 +57,7 @@ def _norm_label(label: Optional[str]) -> str:
         lab = "NEUTRAL"
     return lab
 
-# For sorting by sentiment: NEG > NEU > POS when "Highest → Lowest"
+# For sorting by sentiment: NEG > NEU > POS when "Highest - Lowest"
 _SENTIMENT_WEIGHT = {"NEGATIVE": 2, "NEUTRAL": 1, "POSITIVE": 0}
 
 def _sentiment_sort_key(item: dict, source: str) -> Tuple[int, float]:
