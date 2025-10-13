@@ -9,10 +9,9 @@ st.title("Post Browser")
 # ---------- Guards ----------
 if "scrape_state" not in st.session_state:
     st.info("No scrape state found. Go to the Scraper page, run a scrape, then come back.")
-    if st.button("Go to Scraper"):
+    if st.button("Go to Scraper", key="go_scraper__no_state"):
         st.switch_page("Pages/1_Scraper.py")
     st.stop()
-    
 
 
 S = st.session_state.scrape_state
@@ -21,9 +20,10 @@ USERS = [u for u in S.get("users", []) if u in RUNS] or list(RUNS.keys())
 
 if not USERS or not RUNS:
     st.info("No cached data found. Please scrape some users first.")
-    if st.button("Go to Scraper"):
+    if st.button("Go to Scraper", key="go_scraper__no_cache"):
         st.switch_page("Pages/1_Scraper.py")
     st.stop()
+
 
 # ---------- Helpers ----------
 def _sentiment_callout(label: Optional[str], text: str) -> None:

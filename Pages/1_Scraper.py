@@ -4,7 +4,9 @@ import time
 import requests
 import streamlit as st
 import instaloader
+import re
 from datetime import datetime
+from datetime import timezone
 import numpy as np
 from PIL import Image
 from tensorflow import keras
@@ -13,11 +15,19 @@ import shutil
 import atexit
 from typing import Optional, Tuple 
 
+
+def wkey(role: str, user: str = "", place: str = "", idx: int | None = None):
+    # role: e.g. "browse_posts"
+    # place: e.g. "header", "footer", "sidebar", "latest_card", "list_card"
+    # idx:   index when rendering inside a loop
+    base = f"{role}__{place}__{user or 'nouser'}"
+    return f"{base}__{idx}" if idx is not None else base
+
 # ---------- style-------
 st.set_page_config(page_title="Capstone")
 
 # --------- Text Sentiment Model ------------
-from Pages.sentiment import analyze_sentiment
+from Pages.Models.sentiment import analyze_sentiment
 
 # ---------- Image Sentiment Model ----------
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "image-sentiment", "model")
@@ -52,7 +62,7 @@ def predict_image(img_path: str):
 L = instaloader.Instaloader()
 L.context._session.cookies.set(
     "sessionid",
-    "3183460804%3AmNXrsOvcwU1BhF%3A10%3AAYjgI8ubfK32AkTj-4U2sSZ0IO63qdLfHNpgALHmxA"
+    "76921770876%3A697JYvfmJGdmjA%3A9%3AAYhTosD0CEvVeTTt8771fhJUTLcz0KH6TteKjbu5BQ"
 )
 
 st.title("Instagram Scraper")
@@ -62,6 +72,10 @@ TEMP_ROOT = tempfile.mkdtemp(prefix="streamlit_static_")
 STATIC_DIR = os.path.join(TEMP_ROOT, "Static")
 os.makedirs(STATIC_DIR, exist_ok=True)
 
+# Input UI
+# Old Lines - save in case of error
+# usernames = st.text_input("Enter Instagram usernames (comma-separated):")
+# max_posts = st.slider("Max posts per user", 5, 500, 20)
 @atexit.register
 def _cleanup_temp_root():
     try:
@@ -122,6 +136,45 @@ def download_file(url: str, out_path: str, timeout: int = 30):
             if chunk:
                 f.write(chunk)
 
+
+
+
+# === Save profile data for a fast header =================
+def save_profile_header(profile, user_dir: str):
+    """
+    Persist a compact profile.json and profile.jpg so the header can render quickly
+    and work on subsequent runs without re-scraping. Non-fatal if avatar download fails.
+    """
+    # Write small JSON with the essentials for the header
+    profile_json = {
+        "username": profile.username,
+        "full_name": profile.full_name,
+        "biography": profile.biography,
+        "followers": profile.followers,
+        "followees": profile.followees,
+        "mediacount": profile.mediacount,
+        "userid": profile.userid,
+        "external_url": profile.external_url,
+        "is_private": profile.is_private,
+        "is_verified": profile.is_verified,
+    }
+    with open(os.path.join(user_dir, "profile.json"), "w", encoding="utf-8") as f:
+        json.dump(profile_json, f, ensure_ascii=False, indent=2)
+
+    # Try to download the avatar once; if it fails, we still show stats/bio
+    profile_pic_path = os.path.join(user_dir, "profile.jpg")
+    try:
+        download_file(profile.profile_pic_url, profile_pic_path)
+    except Exception:
+        profile_pic_path = None  # silently continue without an image
+
+    return profile_json, profile_pic_path
+
+# ---------- Action ----------
+
+
+# if st.button("Download Posts"):
+#     if not usernames.strip():
 # ---------- Risk scoring (0..100) ----------
 def compute_risk(text_label: str, text_score: float,
                  img_label: Optional[str], img_conf: Optional[float]) -> Tuple[int, str]:
@@ -187,7 +240,10 @@ if do_scrape:
                 with st.status(f"Fetching profile: {username}", expanded=True) as status:
                     profile = instaloader.Profile.from_username(L.context, username)
                     status.update(label=f"Fetched profile: {username}")
-                    
+
+                # === NEW: persist a tiny profile bundle for the header (profile.json + profile.jpg)
+                header_json, header_pic_path = save_profile_header(profile, user_dir)
+
                     
                 # --- profile picture: get URL and download local copy ---\
                 profile_pic_url_obj = getattr(profile, "profile_pic_url", None) or getattr(profile, "profile_pic_url_hd", None)
@@ -214,6 +270,14 @@ if do_scrape:
                 prog = st.progress(0, text=f"Downloading up to {total} posts for @{profile.username}…")
 
                 for i, post in enumerate(posts, start=1):
+
+                    # # ==============================================
+                    # # # Helper variables
+
+                    caption = post.caption or ""
+                    mentions = re.findall(r"@(\w+)", caption)
+
+
                     if i > S["max_posts"]:
                         break
 
@@ -268,6 +332,13 @@ if do_scrape:
                         "prediction": prediction,                 # image sentiment (if any)
                         "sentiment_label": sentiment["label"],    # text sentiment
                         "sentiment_score": sentiment["score"],
+                        # --- Added extended metadata ---
+                        # "date_utc": post.date_utc.replace(tzinfo=timezone.utc).isoformat(),
+                        # "hashtags": hashtags,
+                        "mentions": mentions,
+                        # "media_urls": [n.url for n in post.get_sidecar_nodes()] if post.typename=="GraphSidecar" else [post.url],
+                        # # "media_urls": media_urls,
+                        "tagged_users": getattr(post, "tagged_users", []),
                         "risk_score": risk_score,                  # NEW
                         "risk_band": risk_band,                    # NEW
                     })
@@ -297,6 +368,10 @@ if do_scrape:
                     "profile_pic_path": profile_pic_path,
                 }
 
+                # after a successful run for a username remember it so data vis can default to it
+                st.session_state["last_username"] = username
+
+
                 st.success(f"Saved {len(meta_out)} posts for **{username}** → `{user_dir}`")
 
             except Exception as e:
@@ -306,86 +381,102 @@ if do_scrape:
 if S["users"]:
     st.markdown("### Results Preview")
     
-    tabs = st.tabs(S["users"])
-    for tab, username in zip(tabs, S["users"]):
-        with tab:
-            data = S["runs"].get(username)
-            if not data:
-                st.info("No cached data yet for this user. Click Download / Update Posts.")
-                continue
+    # ---- replace the whole tabs block with this card list ----
+    # --- Drop this in where the card-loop previously was (i.e., replacing that whole block) ---
+    # --- TABS RENDER (drop-in replacement for the tabs->cards section) ---
+    RUNS = S.get("runs", {})
+    users = [u for u in S.get("users", []) if u in RUNS] or list(RUNS.keys())
 
+    if users:
+        tabs = st.tabs(users)
+        for tab, username in zip(tabs, users):
+            with tab:
+                data = RUNS.get(username)
+                if not data:
+                    st.info("No cached data yet for this user. Click Download / Update Posts.")
+                    continue
 
-                    # ---------- Display profile header ----------
-            st.markdown(f"### {data['username']}")
-            try:
-                profile_pic_path = data.get("profile_pic_path")
-                profile_pic_url = data.get("profile_pic_url")
+                # ---------- Display profile header ----------
+                st.markdown(f"### {data['username']}")
+                try:
+                    profile_pic_path = data.get("profile_pic_path")
+                    profile_pic_url = data.get("profile_pic_url")
 
-                if profile_pic_path and os.path.exists(profile_pic_path):
-                    st.image(profile_pic_path, width=120, caption=f"@{data['username']}")
-                elif profile_pic_url:
-                    if hasattr(profile_pic_url, "url"):
-                        profile_pic_url = profile_pic_url.url
-                    st.image(str(profile_pic_url), width=120, caption=f"@{data['username']}")
-                else:
-                    st.caption("(No profile picture found)")
-            except Exception as e:
-                st.caption(f"(Profile image unavailable: {e})")                 
-
-            if st.button("Click to browse Posts"):
-                st.switch_page("Pages/2_Post Browser.py")
-
-            st.caption(f"Last updated: {data['last_updated']}")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Followers", f"{data['followers']:,}")
-            col2.metric("Following", f"{data['followees']:,}")
-            col3.metric("Posts", f"{data['mediacount']:,}")
-
-            # ---- Risk summary ----
-            st.markdown("#### Risk Overview")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Avg Risk", f"{data.get('avg_risk', 0)}/100")
-            rc = data.get("risk_counts", {"LOW": 0, "MEDIUM": 0, "HIGH": 0})
-            c2.metric("Low", rc.get("LOW", 0))
-            c3.metric("Medium", rc.get("MEDIUM", 0))
-            c4.metric("High", rc.get("HIGH", 0))
-
-            st.markdown("#### Recent items")
-            for item in data["posts"][: min(len(data["posts"]), 10)]:
-                with st.expander(f"{item['shortcode']} — {('video' if item['is_video'] else 'image')}", expanded=False):
-                    if item["is_video"]:
-                        st.video(item["local_path"])
+                    if profile_pic_path and os.path.exists(profile_pic_path):
+                        st.image(profile_pic_path, width=120, caption=f"@{data['username']}")
+                    elif profile_pic_url:
+                        if hasattr(profile_pic_url, "url"):
+                            profile_pic_url = profile_pic_url.url
+                        st.image(str(profile_pic_url), width=120, caption=f"@{data['username']}")
                     else:
-                        st.image(item["local_path"])
-                        if item.get("prediction"):
-                            st.write(f"**Image Sentiment:** {item['prediction']['label'].upper()} ({item['prediction']['confidence']:.2f})")
+                        st.caption("(No profile picture found)")
+                except Exception as e:
+                    st.caption(f"(Profile image unavailable: {e})")
 
+                # --- Actions (unique keys per TAB) ---
+                if st.button(
+                    "Click to browse Posts",
+                    key=wkey("browse_posts", username, "tab"),
+                ):
+                    st.session_state["last_username"] = username
+                    st.switch_page("Pages/2_Post Browser.py")
 
-                    cap = item.get("caption") or ""
-                    if cap:
-                        st.write(cap[:200] + ("…" if len(cap) > 200 else ""))
+                st.caption(f"Last updated: {data['last_updated']}")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Followers", f"{data['followers']:,}")
+                col2.metric("Following", f"{data['followees']:,}")
+                col3.metric("Posts", f"{data['mediacount']:,}")
 
-                    # caption sentiment callout (context)
-                    lab = item.get("sentiment_label")
-                    score = item.get("sentiment_score")
-                    if lab == "POSITIVE":
-                        st.write(f"Caption Sentiment: {lab} ({score:.2f})")
-                    elif lab == "NEGATIVE":
-                        st.write(f"Caption Sentiment: {lab} ({score:.2f})")
-                    else:
-                        st.info(f"Caption Sentiment: {lab} ({score:.2f})")
+                # ---- Risk summary ----
+                st.markdown("#### Risk Overview")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Avg Risk", f"{data.get('avg_risk', 0)}/100")
+                rc = data.get("risk_counts", {"LOW": 0, "MEDIUM": 0, "HIGH": 0})
+                c2.metric("Low", rc.get("LOW", 0))
+                c3.metric("Medium", rc.get("MEDIUM", 0))
+                c4.metric("High", rc.get("HIGH", 0))
 
-                    # risk badge
-                    r = item.get("risk_score")
-                    rb = item.get("risk_band")
-                    if r is not None and rb:
-                        if rb == "HIGH":
-                            st.error(f"Risk: {r}/100 ({rb})")
-                        elif rb == "MEDIUM":
-                            st.warning(f"Risk: {r}/100 ({rb})")
+                # ---- Recent items (NO key param on expander for older Streamlit) ----
+                st.markdown("#### Recent items")
+                for i, item in enumerate(data["posts"][: min(len(data["posts"]), 10)]):
+                    title = f"{item['shortcode']} — {('video' if item['is_video'] else 'image')}"
+                    with st.expander(title, expanded=False):
+                        if item["is_video"]:
+                            st.video(item["local_path"])
                         else:
-                            st.success(f"Risk: {r}/100 ({rb})")
+                            st.image(item["local_path"]) 
+                            pred = item.get("prediction")
+                            if pred:
+                                st.write(
+                                    f"**Image Sentiment:** {pred['label'].upper()} ({pred['confidence']:.2f})"
+                                )
 
-            st.caption(f"Metadata file: {data['meta_file']}")
+                        cap = item.get("caption") or ""
+                        if cap:
+                            st.write(cap[:200] + ("…" if len(cap) > 200 else ""))
+
+                        # caption sentiment callout (context)
+                        lab = item.get("sentiment_label")
+                        score = item.get("sentiment_score")
+                        if lab == "POSITIVE":
+                            st.write(f"Caption Sentiment: {lab} ({score:.2f})")
+                        elif lab == "NEGATIVE":
+                            st.write(f"Caption Sentiment: {lab} ({score:.2f})")
+                        else:
+                            st.info(f"Caption Sentiment: {lab} ({score:.2f})")
+
+                        # risk badge
+                        r = item.get("risk_score")
+                        rb = item.get("risk_band")
+                        if r is not None and rb:
+                            if rb == "HIGH":
+                                st.error(f"Risk: {r}/100 ({rb})")
+                            elif rb == "MEDIUM":
+                                st.warning(f"Risk: {r}/100 ({rb})")
+                            else:
+                                st.success(f"Risk: {r}/100 ({rb})")
+
+                st.caption(f"Metadata file: {data['meta_file']}")
+
 else:
     st.info("No cached runs yet. Add usernames and click **Download / Update Posts**.")
