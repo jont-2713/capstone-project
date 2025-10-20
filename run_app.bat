@@ -3,8 +3,6 @@ title Instagator - Streamlit App
 echo Launching Instagator Streamlit app...
 echo.
 
-REM (Optional) Activate virtual environment if you use one:
-REM call venv\Scripts\activate
 
 REM Navigate to project directory
 cd /d "%~dp0"
