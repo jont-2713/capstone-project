@@ -214,6 +214,41 @@ div.tile-card {
   box-shadow: 0 0 8px rgba(0,0,0,0.25);
 }
 div.tile-card img { border-radius: 8px; }
+
+/* --- badge and sentiment colors --- */
+/* --- badge and sentiment colors --- */
+.stats-row {
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;           /* allow badges to wrap to a new line */
+  gap: 4px 6px;              /* row/column gap */
+  align-items: center;
+  height: auto;              /* don't clamp row height */
+}
+
+.badge {
+  font-size: 16px;           /* keep requested size */
+  line-height: 20px;         /* a touch of breathing room */
+  padding: 2px 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.2);
+
+  /* make each badge shrink if needed and avoid overflow */
+  flex: 0 1 auto;            /* allow shrinking but don't force stretching */
+  min-width: 0;              /* enable flexbox text truncation */
+  max-width: 100%;
+  white-space: nowrap;       /* keep each badge on one line */
+  overflow: hidden;          /* hide overflowed text */
+  text-overflow: ellipsis;   /* show … when truncated */
+}
+
+.badge.pos    { background-color:#21A36633; border-color:#21A366; }
+.badge.neu    { background-color:#F1C40F33; border-color:#F1C40F; }
+.badge.neg    { background-color:#E74C3C33; border-color:#E74C3C; }
+.badge.low    { background-color:#21A36633; border-color:#21A366; }
+.badge.medium { background-color:#F1C40F33; border-color:#F1C40F; }
+.badge.high   { background-color:#E74C3C33; border-color:#E74C3C; }
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -226,47 +261,51 @@ if not filtered:
     st.info("No posts matched the current filters.")
     st.stop()
 
-cols = st.columns(cols_per_row, gap="medium")
+# render in complete rows
+for start in range(0, len(filtered), cols_per_row):
+    row_items = filtered[start:start + cols_per_row]
+    cols = st.columns(len(row_items), gap="medium")
+    for col, item in zip(cols, row_items):
+        with col:
+            st.markdown('<div class="tile-card">', unsafe_allow_html=True)
 
-for i, item in enumerate(filtered):
-    col = cols[i % cols_per_row]
-    with col:
-        st.markdown('<div class="tile-card">', unsafe_allow_html=True)
+            # Header
+            short = item.get("shortcode", "?")
+            taken = (item.get("taken_at") or "")[:19].replace("T", " ")
+            st.markdown(f"**{short}** · *image* · {taken}")
 
-        # Header
-        kind = "video" if item.get("is_video") else "image"
-        taken = (item.get("taken_at") or "")[:19].replace("T", " ")
-        st.markdown(f"**{item.get('shortcode','?')}** · *{kind}* · {taken}")
+            # Fixed-size image
+            st.markdown('<div class="media-box">', unsafe_allow_html=True)
+            st.image(item.get("local_path"), width='stretch')
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        # Media
-        if item.get("is_video"):
-            st.video(item.get("local_path"))
-        else:
-            st.image(item.get("local_path"), use_container_width=True)
+            # Caption
+            cap = (item.get("caption") or "").strip()
+            snippet = cap[:280] + ("…" if len(cap) > 280 else "")
+            st.markdown(f'<div class="caption-box">{snippet}</div>', unsafe_allow_html=True)
 
-        # Caption snippet
-        cap = item.get("caption") or ""
-        if cap:
-            st.write(cap[:180] + ("…" if len(cap) > 180 else ""))
+            import textwrap
 
-        # --- SCORES (aligned & consistent) ---
-        c_img, c_cap, c_risk = st.columns(3)
+            # --- Badges row ---
+            pred = item.get("prediction") or {}
+            img_lab = _norm_label(pred.get("label"))
+            img_conf = float(pred.get("confidence") or 0.0)
+            cap_lab = _norm_label(item.get("sentiment_label"))
+            cap_conf = float(item.get("sentiment_score") or 0.0)
+            risk_score = int(item.get("risk_score") or 0)
+            risk_band = (item.get("risk_band") or "LOW").upper()
 
-        # Image sentiment
-        pred = item.get("prediction") or {}
-        img_lab = _norm_label(pred.get("label"))
-        img_conf = float(pred.get("confidence") or 0.0)
-        with c_img:
-            _sentiment_callout(img_lab, f"Image Sentiment: {img_lab or 'N/A'} ({img_conf:.2f})")
+            lab_map = {"POSITIVE": "pos", "NEUTRAL": "neu", "NEGATIVE": "neg"}
+            risk_map = {"LOW": "low", "MEDIUM": "medium", "HIGH": "high"}
 
-        # Caption sentiment
-        cap_lab = _norm_label(item.get("sentiment_label"))
-        cap_score = float(item.get("sentiment_score") or 0.0)
-        with c_cap:
-            _sentiment_callout(cap_lab, f"Caption Sentiment: {cap_lab or 'N/A'} ({cap_score:.2f})")
+            badges = textwrap.dedent(f"""
+            <div class="stats-row">
+            <span class="badge {lab_map.get(img_lab,'neu')}">Image: {img_lab} ({img_conf:.2f})</span>
+            <span class="badge {lab_map.get(cap_lab,'neu')}">Caption: {cap_lab} ({cap_conf:.2f})</span>
+            <span class="badge {risk_map.get(risk_band,'low')}">Risk: {risk_score}/100 ({risk_band})</span>
+            </div>
+            """)
+            st.markdown(badges, unsafe_allow_html=True)
 
-        # Risk
-        with c_risk:
-            _risk_callout(item.get("risk_score"), item.get("risk_band"))
 
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)

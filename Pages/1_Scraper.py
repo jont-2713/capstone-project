@@ -26,6 +26,24 @@ def wkey(role: str, user: str = "", place: str = "", idx: int | None = None):
 # ---------- style-------
 st.set_page_config(page_title="Capstone")
 
+# ↓ Add this block to tighten vertical spacing & column padding
+st.markdown("""
+<style>
+/* reduce page padding a bit */
+.block-container {padding-top: 0.6rem; padding-bottom: 0.6rem;}
+/* tighter headings */
+h1, h2, h3, h4, h5 {margin: 0.2rem 0 0.35rem 0; line-height: 1.15;}
+/* tighten st.metric blocks */
+div[data-testid="stMetric"] {margin: 0.15rem 0;}
+div[data-testid="stMetric"] > label {margin-bottom: 0.1rem; font-size: 0.9rem;}
+/* optional: narrower content width to bring items closer horizontally */
+.block-container {max-width: 1100px;}
+</style>
+""", unsafe_allow_html=True)
+
+
+
+
 # --------- Text Sentiment Model ------------
 from Pages.Models.sentiment import analyze_sentiment
 
@@ -266,51 +284,47 @@ if do_scrape:
                 risk_counts = {"LOW": 0, "MEDIUM": 0, "HIGH": 0}
                 risk_sum = 0
 
-                total = min(S["max_posts"], profile.mediacount or S["max_posts"])
-                prog = st.progress(0, text=f"Downloading up to {total} posts for @{profile.username}…")
+                # count only images toward the goal
+                target = S["max_posts"]                      # we want up to this many images
+                saved  = 0
+                prog = st.progress(0, text=f"Downloading up to {target} images for @{profile.username}…")
 
-                for i, post in enumerate(posts, start=1):
+                for post in posts:
+                    # Skip videos entirely (do not advance 'saved')
+                    if getattr(post, "is_video", False):
+                        continue
 
-                    # # ==============================================
-                    # # # Helper variables
+                    # We got an image post -> count it
+                    saved += 1
+                    if saved > target:
+                        break
 
                     caption = post.caption or ""
                     mentions = re.findall(r"@(\w+)", caption)
 
+                    media_url = post.url
+                    ext = "jpg"
 
-                    if i > S["max_posts"]:
-                        break
-
-                    is_video = getattr(post, "is_video", False)
-                    media_url = getattr(post, "video_url", None) if is_video else post.url
-                    if not media_url:
-                        media_url = post.url
-                        is_video = False
-
-                    ext = "mp4" if is_video else "jpg"
-                    shortcode = getattr(post, "shortcode", f"{username}_{i}")
+                    # use saved as the numeric fallback, not the original enumerator
+                    shortcode = getattr(post, "shortcode", f"{username}_{saved}")
                     filename = f"{shortcode}.{ext}"
                     out_path = os.path.join(user_dir, filename)
 
                     try:
                         download_file(media_url, out_path)
                     except Exception as dl_err:
-                        st.error(f"Failed to download {username} post {i}: {dl_err}")
+                        st.error(f"Failed to download {username} post {saved}: {dl_err}")
+                        # If a download fails, don't count it against the target
+                        saved -= 1
                         continue
 
-                    prediction = None
-                    if not is_video:
-                        pred_label, pred_conf, probs_list = predict_image(out_path)
-                        prediction = {"label": pred_label, "confidence": pred_conf, "probs": probs_list}
+                    pred_label, pred_conf, probs_list = predict_image(out_path)
+                    prediction = {"label": pred_label, "confidence": pred_conf, "probs": probs_list}
 
-                    caption = post.caption or ""
                     sentiment = analyze_sentiment(caption)
-
-                    # image sentiment parts (may be None for videos)
                     img_label = prediction["label"] if prediction else None
-                    img_conf  = prediction["confidence"] if prediction else None
+                    img_conf  = None
 
-                    # --- compute risk ---
                     risk_score, risk_band = compute_risk(
                         text_label=sentiment["label"],
                         text_score=sentiment["score"],
@@ -324,27 +338,25 @@ if do_scrape:
                         "username": profile.username,
                         "shortcode": shortcode,
                         "taken_at": datetime.fromtimestamp(post.date_utc.timestamp()).isoformat(),
-                        "is_video": is_video,
+                        "is_video": False,
                         "local_path": out_path,
                         "caption": caption,
                         "likes": getattr(post, "likes", None),
                         "comments": getattr(post, "comments", None),
-                        "prediction": prediction,                 # image sentiment (if any)
-                        "sentiment_label": sentiment["label"],    # text sentiment
+                        "prediction": prediction,
+                        "sentiment_label": sentiment["label"],
                         "sentiment_score": sentiment["score"],
-                        # --- Added extended metadata ---
-                        # "date_utc": post.date_utc.replace(tzinfo=timezone.utc).isoformat(),
-                        # "hashtags": hashtags,
                         "mentions": mentions,
-                        # "media_urls": [n.url for n in post.get_sidecar_nodes()] if post.typename=="GraphSidecar" else [post.url],
-                        # # "media_urls": media_urls,
                         "tagged_users": getattr(post, "tagged_users", []),
-                        "risk_score": risk_score,                  # NEW
-                        "risk_band": risk_band,                    # NEW
+                        "risk_score": risk_score,
+                        "risk_band": risk_band,
                     })
 
+                    # progress uses 'saved' so it only reflects images kept
+                    prog.progress(saved / target, text=f"Downloaded {saved}/{target}")
                     time.sleep(0.4)
-                    prog.progress(min(i, total) / total, text=f"Downloaded {min(i, total)}/{total}")
+
+                    # prog.progress(min(i, total) / total, text=f"Downloaded {min(i, total)}/{total}")
 
                 # write metadata to disk inside temp user dir
                 meta_file = os.path.join(user_dir, "metadata.json")
@@ -422,14 +434,14 @@ if S["users"]:
                     st.switch_page("Pages/2_Post Browser.py")
 
                 st.caption(f"Last updated: {data['last_updated']}")
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3 = st.columns(3, gap="small")
                 col1.metric("Followers", f"{data['followers']:,}")
                 col2.metric("Following", f"{data['followees']:,}")
                 col3.metric("Posts", f"{data['mediacount']:,}")
 
                 # ---- Risk summary ----
                 st.markdown("#### Risk Overview")
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3, c4 = st.columns(4, gap="small")
                 c1.metric("Avg Risk", f"{data.get('avg_risk', 0)}/100")
                 rc = data.get("risk_counts", {"LOW": 0, "MEDIUM": 0, "HIGH": 0})
                 c2.metric("Low", rc.get("LOW", 0))

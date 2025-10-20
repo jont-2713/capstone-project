@@ -4,7 +4,6 @@ from datetime import date, timedelta
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-
 import os
 import json
 from dateutil import tz
@@ -163,12 +162,45 @@ def calendar_heatmap_figure(pivot: pd.DataFrame, cell_px: int = 22, gaps=(1, 1))
     y_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     z = pivot.values
 
-    # Full-year month ticks
-    year = pd.to_datetime(str(pivot.columns[0])).year
-    x_range_start = pd.Timestamp(year=year, month=1, day=1)
-    x_range_end   = pd.Timestamp(year=year, month=12, day=31) + pd.Timedelta(days=1)
+    # --- NEW: compute the occupied x-window and pad it ---
+    # columns with any nonzero count
+    nonzero_weeks = pivot.columns[(pivot > 0).any(axis=0)]
 
-    # Hover text
+    # overall domain of your calendar (min/max week columns you plotted)
+    domain_start = pd.to_datetime(str(pivot.columns.min()))
+    # add one week so the last column is fully included
+    domain_end   = pd.to_datetime(str(pivot.columns.max())) + pd.Timedelta(weeks=1)
+
+    if len(nonzero_weeks) > 0:
+        dmin = pd.to_datetime(str(nonzero_weeks.min()))
+        dmax = pd.to_datetime(str(nonzero_weeks.max()))
+
+        pad  = pd.Timedelta(days=7)     # small visual margin
+        six  = pd.Timedelta(days=183)   # ~ six months
+
+        span = dmax - dmin
+        mid  = dmin + span / 2
+
+        # ensure at least six months; otherwise use data span + pad
+        half = max(six / 2, span / 2 + pad)
+
+        start = mid - half
+        end   = mid + half
+
+        # clamp to calendar domain so we don't scroll off canvas
+        start = max(start, domain_start)
+        end   = min(end,   domain_end)
+
+        x_range = [start, end]
+    else:
+        # no activity: default to a centered six-month window within the domain
+        mid    = domain_start + (domain_end - domain_start) / 2
+        half   = pd.Timedelta(days=183) / 2
+        start  = max(domain_start, mid - half)
+        end    = min(domain_end,   mid + half)
+        x_range = [start, end]
+
+    # Hover text (unchanged)
     hover_text = []
     for r, dow in enumerate(range(7)):
         row = []
@@ -181,21 +213,36 @@ def calendar_heatmap_figure(pivot: pd.DataFrame, cell_px: int = 22, gaps=(1, 1))
         z=z, x=x, y=y_labels,
         text=hover_text, hoverinfo="text",
         coloraxis="coloraxis",
-        xgap=gaps[0], ygap=gaps[1],   # set once here
+        xgap=gaps[0], ygap=gaps[1],
     ))
 
-    # Compute a height so cells are roughly square
-    ny = pivot.shape[0]  # 7
+    ny = pivot.shape[0]  # 7 rows
     fig.update_layout(
         margin=dict(l=50, r=70, t=40, b=40),
-        height=ny * cell_px + 80,                 # <- square-ish rows
-        coloraxis=dict(colorscale="Greens", colorbar=dict(x=1.02)),
-        xaxis=dict(type="date", range=[x_range_start, x_range_end],
-                   dtick="M1", tickformat="%b", ticks="outside", showgrid=False),
-        yaxis=dict(showgrid=False),
-        plot_bgcolor="white", paper_bgcolor="white",
+        height=ny * cell_px + 80,
+        coloraxis=dict(colorscale="BuGn", colorbar=dict(x=1.02)),
+        uirevision=None,                 # avoid restoring stale zoom
+        xaxis_constrain="domain",
     )
+
+    # apply the computed range when you update axes (keep your existing call)
+    # fig.update_xaxes(range=x_range, dtick="M1", tickformat="%b", ...)
+
+
+    fig.update_xaxes(
+        type="date",
+        range=x_range,                 # <- NEW: start zoomed to active weeks
+        dtick="M1",
+        tickformat="%b",
+        ticks="outside",
+        showgrid=False
+    )
+    fig.update_yaxes(showgrid=False)
+
+    # keep light background like before
+    fig.update_layout(plot_bgcolor="white", paper_bgcolor="white")
     return fig
+
 
 ## === Pick which profile(s) to show — USE IN-MEMORY CACHE ===
 RUNS = st.session_state.get("scrape_state", {}).get("runs", {})
@@ -213,21 +260,14 @@ default_user = st.session_state.get("last_username")
 if default_user and default_user in available:
     available = [default_user] + [u for u in available if u != default_user]
 
-# === Tabs row + compact year dropdown (same row)
+# === Tabs row (no year dropdown)
 st.markdown("### Accounts")
 
 tabs = st.tabs(available)
 
-current_year = int(pd.Timestamp.now().year)
-years = list(range(current_year, current_year - 6, -1))
+# keep a 'year' variable for downstream code, but pick it automatically
+year = int(pd.Timestamp.now().year)  # or set from data later per-account
 
-year = st.selectbox(
-    "Calendar year",
-    options=years,
-    index=0,
-    key="analytics_year_main",
-    help="Select the year to display posts for.",
-)
 
 # default tab index based on last used user
 idx = 0
@@ -279,7 +319,27 @@ for tab, username in zip(tabs, available):
             )
             continue
 
-        st.caption(f"Calendar year: {year}")
+        ####
+        # --- Year Filter (applies to all charts in this tab) --------------------
+        df = pd.DataFrame(meta_records)
+        if "taken_at" not in df.columns:
+            st.warning("No 'taken_at' field found in data.")
+            st.stop()
+
+        df["taken_at"] = pd.to_datetime(df["taken_at"], errors="coerce", utc=True)
+        available_years = sorted(df["taken_at"].dt.year.dropna().unique(), reverse=True)
+
+        selected_year = st.selectbox(
+            "Select Calendar Year",
+            available_years,
+            index=0,
+            key=f"year_{username}"  # <- per-tab key so user A and user B can have different selections
+        )
+
+        # Use this filtered frame for ALL charts/metrics on the tab
+        df_year = df[df["taken_at"].dt.year == selected_year].copy()
+        year = int(selected_year)  # if your existing code expects `year`
+
 
         # Account Overview, Heatmap, Share of Sentiment, Breakdown, Line Over Time, Table
         try:
@@ -304,12 +364,75 @@ for tab, username in zip(tabs, available):
 
                 # === ROW 1 ===
                 # TOP-LEFT — Account Overview/Summary card
+                # === ROW 1 ===
+                # TOP-LEFT — Account Overview/Summary card
+                # --- TOP-LEFT — Account Overview/Summary card ---
                 with r1c1:
                     with st.container(border=True):
                         st.markdown("#### Account Overview")
-                        st.metric("Total posts", f"{int(pivot.values.sum()):,}")
-                        st.metric("Active days", f"{int((pivot.values>0).sum()):,}")
-                        st.metric("Max/day", f"{int(pivot.values.max()) if pivot.size else 0:,}")
+
+                        # Use filtered data from the selected calendar year
+                        if df_year.empty:
+                            st.info("No data available for the selected year.")
+                        else:
+                            # --- Left column: summary metrics from pivot (still year-based) ---
+                            c1, c2 = st.columns(2)
+
+                            with c1:
+                                st.metric("Total posts", f"{int(pivot.values.sum()):,}")
+                                st.metric("Active days", f"{int((pivot.values > 0).sum()):,}")
+                                st.metric("Max/day", f"{int(pivot.values.max()) if pivot.size else 0:,}")
+
+                            # --- Right column: risk metrics from df_year ---
+                            def _img_label(x):
+                                if x is None:
+                                    return ""
+                                if isinstance(x, dict):
+                                    return str(x.get("label", "")).strip()
+                                if isinstance(x, str):
+                                    return x.strip()
+                                if isinstance(x, (list, tuple)):
+                                    for item in x:
+                                        if isinstance(item, dict) and item.get("label"):
+                                            return str(item["label"]).strip()
+                                        if isinstance(item, str) and item.strip():
+                                            return item.strip()
+                                    return ""
+                                return str(x).strip()
+
+                            df = df_year.copy()  # use filtered dataset for year
+                            img_lab = df.get("prediction", pd.Series(index=df.index)).apply(_img_label).str.capitalize().fillna("")
+                            text_lab = df.get("sentiment_label", pd.Series(index=df.index)).astype(str).str.strip().str.capitalize()
+
+                            # --- Risk metrics ---
+                            if "risk_score" in df.columns:
+                                df["risk_score"] = pd.to_numeric(df["risk_score"], errors="coerce")
+                                avg_risk = df["risk_score"].mean()
+                                avg_risk_txt = f"{0 if pd.isna(avg_risk) else avg_risk:.1f}"
+
+                                # Classify risk bands
+                                df["risk_band"] = pd.cut(
+                                    df["risk_score"],
+                                    bins=[0, 40, 70, 100],
+                                    labels=["Low", "Medium", "High"],
+                                    include_lowest=True,
+                                )
+
+                                low_risk_count = int((df["risk_band"] == "Low").sum())
+                                high_risk_count = int((df["risk_band"] == "High").sum())
+                            else:
+                                avg_risk_txt = "0.0"
+                                low_risk_count = 0
+                                high_risk_count = 0
+
+                            # --- Right column metrics ---
+                            with c2:
+                                st.metric("Low Risk", f"{low_risk_count:,}")
+                                st.metric("High Risk", f"{high_risk_count:,}")
+                                st.metric("Risk Score", avg_risk_txt)
+
+
+
 
                 # TOP-MIDDLE - Heatmap
                 with r1c2:
@@ -383,150 +506,201 @@ for tab, username in zip(tabs, available):
                     with st.container(border=True):
                         st.markdown("#### Sentiment Breakdown")
 
-
-
-                        df = pd.DataFrame(meta_records)
-                        if df.empty:
-                            st.info("No metadata loaded.")
+                        # Use the year-filtered dataset
+                        if df_year.empty:
+                            st.info("No metadata loaded for the selected year.")
                         else:
-                            # --- timestamp column & parse ---
-                            ts_col = "taken_at" if "taken_at" in df.columns else ("date_utc" if "date_utc" in df.columns else None)
+                            ts_col = "taken_at" if "taken_at" in df_year.columns else (
+                                "date_utc" if "date_utc" in df_year.columns else None
+                            )
                             if ts_col is None:
                                 st.info("Missing 'taken_at' or 'date_utc' in metadata.")
                             else:
-                                df[ts_col] = pd.to_datetime(df[ts_col], errors="coerce", utc=True)
+                                df_year[ts_col] = pd.to_datetime(df_year[ts_col], errors="coerce", utc=True)
 
                                 # --- sentiment labels (or bin score) ---
-                                if "sentiment_label" in df.columns and df["sentiment_label"].notna().any():
-                                    lab = df["sentiment_label"].astype(str).str.lower().str.strip()
-                                elif "sentiment_score" in df.columns:
-                                    s = df["sentiment_score"]
-                                    lab = pd.Series(pd.NA, index=df.index)
+                                if "sentiment_label" in df_year.columns and df_year["sentiment_label"].notna().any():
+                                    lab = df_year["sentiment_label"].astype(str).str.lower().str.strip()
+                                elif "sentiment_score" in df_year.columns:
+                                    s = df_year["sentiment_score"]
+                                    lab = pd.Series(pd.NA, index=df_year.index)
                                     lab = lab.mask(s >= 0.60, "positive").mask(s <= 0.40, "negative").fillna("neutral")
                                 else:
                                     st.info("Need 'sentiment_label' or 'sentiment_score'.")
                                     st.stop()
 
-                                df["sent"] = lab.map({"positive":"Positive","neutral":"Neutral","negative":"Negative"})
-                                df = df.dropna(subset=[ts_col, "sent"]).copy()
+                                df_year["sent"] = lab.map(
+                                    {"positive": "Positive", "neutral": "Neutral", "negative": "Negative"}
+                                )
+                                df_year = df_year.dropna(subset=[ts_col, "sent"]).copy()
 
-                                # --- build a continuous list of last K months (K = max(5, #months present)) ---
-                                df["period"] = df[ts_col].dt.to_period("M")          # e.g., 2025-09
-                                if df["period"].empty:
+                                # --- build a continuous list of months for the selected year ---
+                                df_year["period"] = df_year[ts_col].dt.to_period("M")
+                                if df_year["period"].empty:
                                     st.info("No dated posts to summarise.")
                                     st.stop()
 
-                                months_present = sorted(df["period"].unique())
-                                last_p = df["period"].max()
-                                K = max(5, len(months_present))
-                                months_seq = [last_p - i for i in range(K)][::-1]    # oldest..newest continuous sequence
+                                # months_present = sorted(df_year["period"].unique())
+                                # last_p = df_year["period"].max()
+                                # K = max(4, len(months_present))
+                                # months_seq = [last_p - i for i in range(K)][::-1]
+
+                                # --- show all months chronologically within the selected year ---
+                                months_present = sorted(df_year["period"].unique())
+
+                                if not months_present:
+                                    st.info("No dated posts to summarise.")
+                                    st.stop()
+
+                                # Create a continuous monthly range from the earliest to the latest period in that year
+                                start_p, end_p = months_present[0], months_present[-1]
+                                months_seq = pd.period_range(start=start_p, end=end_p, freq="M")
+
 
                                 # --- aggregate counts per (period × sentiment) ---
-                                counts = (df.groupby(["period","sent"])
-                                            .size().rename("count").reset_index())
+                                counts = (
+                                    df_year.groupby(["period", "sent"])
+                                    .size()
+                                    .rename("count")
+                                    .reset_index()
+                                )
 
-                                classes = ["Positive","Neutral","Negative"]
-                                idx = pd.MultiIndex.from_product([months_seq, classes], names=["period","sent"])
-                                counts = (counts.set_index(["period","sent"])
-                                                .reindex(idx, fill_value=0)
-                                                .reset_index())
+                                classes = ["Positive", "Neutral", "Negative"]
+                                idx = pd.MultiIndex.from_product([months_seq, classes], names=["period", "sent"])
+                                counts = (
+                                    counts.set_index(["period", "sent"])
+                                    .reindex(idx, fill_value=0)
+                                    .reset_index()
+                                )
 
-                                # month names (no year) for y labels, in order
-                                counts["month_name"] = counts["period"].dt.strftime("%b")
-                                order_names = [p.strftime("%b") for p in months_seq]
-                                counts["month_name"] = pd.Categorical(counts["month_name"], categories=order_names, ordered=True)
-                                counts = counts.sort_values(["month_name","sent"])
+                                # --- unique, ordered month labels ---
+                                counts["month_label"] = counts["period"].dt.to_timestamp().dt.strftime("%b %Y")
+                                order_labels = [p.to_timestamp().strftime("%b %Y") for p in months_seq]
+                                counts["month_label"] = pd.Categorical(
+                                    counts["month_label"], categories=order_labels, ordered=True
+                                )
+                                counts = counts.sort_values(["month_label", "sent"])
 
-                                # ---- x-axis every 10; range up to nearest 10 ----
-                                totals = counts.groupby("month_name")["count"].sum()
-                                xmax = int(math.ceil((totals.max() if len(totals) else 0)/10.0) * 10) or 10
+                                totals = counts.groupby("month_label")["count"].sum()
+                                xmax = int(math.ceil((totals.max() if len(totals) else 0) / 10.0) * 10) or 10
 
                                 # --- plot: stacked horizontal bars ---
                                 fig = px.bar(
-                                    counts, y="month_name", x="count",
-                                    color="sent", orientation="h", barmode="stack",
-                                    labels={"month_name":"Month", "count":"No. of Posts", "sent":""},
-                                    color_discrete_map={"Positive":"#21A366","Neutral":"#F1C40F","Negative":"#E74C3C"},
+                                    counts,
+                                    y="month_label",
+                                    x="count",
+                                    color="sent",
+                                    orientation="h",
+                                    barmode="stack",
+                                    labels={"month_label": "Month", "count": "No. of Posts", "sent": ""},
+                                    color_discrete_map={
+                                        "Positive": "#21A366",
+                                        "Neutral": "#F1C40F",
+                                        "Negative": "#E74C3C",
+                                    },
                                 )
+                                fig.update_yaxes(categoryorder="array", categoryarray=order_labels)
                                 fig.update_xaxes(tickmode="linear", dtick=10, range=[0, xmax])
                                 fig.update_layout(
                                     margin=dict(l=10, r=10, t=10, b=10),
-                                    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                                    legend=dict(orientation="v", x=1.02, xanchor="left", y=0.5, yanchor="middle"),
+                                    plot_bgcolor="rgba(0,0,0,0)",
+                                    paper_bgcolor="rgba(0,0,0,0)",
+                                    legend=dict(
+                                        orientation="v", x=1.02, xanchor="left", y=0.5, yanchor="middle"
+                                    ),
                                 )
-                                st.plotly_chart(fig, use_container_width=True, key=f"sentiment_breakdown_{username}")
+
+                                st.plotly_chart(
+                                    fig,
+                                    use_container_width=True,
+                                    key=f"sentiment_breakdown_{username}_{selected_year}",
+                                )
 
                 # BOTTOM-MIDDLE - Line Graph
                 with r2c2:
                     with st.container(border=True):
                         st.markdown("#### Sentiment Over Time")
 
-
-                        df = pd.DataFrame(meta_records)
-                        if df.empty:
-                            st.info("No sentiment data available.")
+                        # Use the year-filtered dataframe
+                        if df_year.empty:
+                            st.info("No sentiment data available for the selected year.")
                         else:
                             # pick timestamp & parse
-                            ts_col = "taken_at" if "taken_at" in df.columns else ("date_utc" if "date_utc" in df.columns else None)
+                            ts_col = "taken_at" if "taken_at" in df_year.columns else (
+                                "date_utc" if "date_utc" in df_year.columns else None
+                            )
                             if ts_col is None:
                                 st.info("Need 'taken_at' or 'date_utc' in metadata."); st.stop()
-                            df[ts_col] = pd.to_datetime(df[ts_col], errors="coerce")
 
-                            # labels 
-                            if "sentiment_label" in df.columns and df["sentiment_label"].notna().any():
-                                lab = df["sentiment_label"].astype(str).str.lower().str.strip()
-                            elif "sentiment_score" in df.columns:
-                                s = df["sentiment_score"]
-                                lab = pd.Series(pd.NA, index=df.index)
+                            df_y = df_year.copy()
+                            df_y[ts_col] = pd.to_datetime(df_y[ts_col], errors="coerce", utc=True)
+
+                            # labels
+                            if "sentiment_label" in df_y.columns and df_y["sentiment_label"].notna().any():
+                                lab = df_y["sentiment_label"].astype(str).str.lower().str.strip()
+                            elif "sentiment_score" in df_y.columns:
+                                s = df_y["sentiment_score"]
+                                lab = pd.Series(pd.NA, index=df_y.index)
                                 lab = lab.mask(s >= 0.60, "positive").mask(s <= 0.40, "negative").fillna("neutral")
                             else:
                                 st.info("Need 'sentiment_label' or 'sentiment_score'."); st.stop()
 
-                            df = df.dropna(subset=[ts_col]).copy()
-                            df["day"]  = df[ts_col].dt.date
-                            df["sent"] = lab.map({"positive":"Positive","neutral":"Neutral","negative":"Negative"})
+                            df_y = df_y.dropna(subset=[ts_col]).copy()
+                            df_y["day"]  = df_y[ts_col].dt.tz_convert(None).dt.date if hasattr(df_y[ts_col].dt, "tz") else df_y[ts_col].dt.date
+                            df_y["sent"] = lab.map({"positive":"Positive","neutral":"Neutral","negative":"Negative"})
 
-                            counts = (df.groupby(["day","sent"]).size()
-                                        .rename("count").reset_index())
+                            counts = (
+                                df_y.groupby(["day","sent"])
+                                    .size()
+                                    .rename("count")
+                                    .reset_index()
+                            )
 
                             classes = ["Positive","Neutral","Negative"]
                             color_map = {"Positive":"#21A366","Neutral":"#F1C40F","Negative":"#E74C3C"}
 
                             fig = go.Figure()
-                            classes = ["Positive","Neutral","Negative"]
-                            color_map = {"Positive":"#21A366","Neutral":"#F1C40F","Negative":"#E74C3C"}
-
                             for cls in classes:
                                 sub = counts[counts["sent"] == cls].sort_values("day")
-
                                 fig.add_trace(go.Scatter(
                                     x=sub["day"], y=sub["count"], name=cls,
                                     mode="lines+markers",
                                     line=dict(width=2, color=color_map[cls]),
                                     marker=dict(size=6),
-                                    line_shape="spline",  # smooth curve
+                                    line_shape="spline",
                                     hovertemplate=f"{cls}<br>%{{x}}<br>No. of posts: %{{y}}<extra></extra>"
                                 ))
-
 
                             fig.update_layout(
                                 legend=dict(
                                     orientation="h",
-                                    x=0.5, xanchor="center",   # center horizontally
-                                    y=-0.30, yanchor="top"     # place below the chart (under date )
+                                    x=0.5, xanchor="center",
+                                    y=-0.30, yanchor="top"
                                 ),
-                                margin=dict(l=10, r=10, t=10, b=120)  # give enough bottom room so it isn't clipped
+                                margin=dict(l=10, r=10, t=10, b=120)
                             )
 
-                            fig.update_xaxes(title_text="Date")
-                            fig.update_yaxes(title_text="No. of Posts", rangemode="tozero")
+                            # Remove year from X tick labels, keep full date in hover
+                            fig.update_xaxes(
+                                tickformat="%b %d",
+                                hoverformat="%b %d, %Y"
+                            )
 
-                            st.plotly_chart(fig, use_container_width=True, key=f"sentiment_over_time_{username}")
+                            # Whole numbers on Y (counts of posts)
+                            fig.update_yaxes(
+                                tickmode="linear",
+                                dtick=1,
+                                tick0=0,
+                                rangemode="tozero"
+                            )
+
+                            st.plotly_chart(fig, use_container_width=True,
+                                            key=f"sentiment_over_time_{username}_{selected_year}")
     
                 # BOTTOM-RIGHT — Post Table
                 with r2c3:
                     with st.container(border=True):
-                        st.markdown("#### Posts · Sentiment & Risk [PLACEHOLDER]")
+                        st.markdown("#### Posts · Sentiment & Risk")
 
 
 
@@ -541,37 +715,177 @@ for tab, username in zip(tabs, available):
                             else:
                                 df[ts_col] = pd.to_datetime(df[ts_col], errors="coerce")
 
-                                # --- Compute a basic risk score from sentiment --- (Align with Jonty's)
-                                # If score exists: 100 * (1 - score). Otherwise map label.
-                                def risk_from_row(r):
-                                    if pd.notna(r.get("sentiment_score")):
-                                        try:
-                                            return int(round(100 * (1.0 - float(r["sentiment_score"]))))
-                                        except Exception:
-                                            pass
-                                    lab = str(r.get("sentiment_label", "")).lower()
-                                    return {"negative": 90, "neutral": 50, "positive": 10}.get(lab, 50)
+                            # --- Use risk saved by the scraper (do NOT recompute here) ---
+                            df["risk_score"] = (
+                                pd.to_numeric(df.get("risk_score", pd.Series(index=df.index)), errors="coerce")
+                                .round()
+                                .astype("Int64")
+                                .fillna(0)
+                                .astype(int)
+                            )
 
-                                df["risk_score"] = df.apply(risk_from_row, axis=1)
+                            # (optional) also keep the stored band if you want it in tables later
+                            if "risk_band" in df.columns:
+                                df["risk_band"] = df["risk_band"].astype(str).str.upper().str.strip()
 
-                                # Build table
+
+
+
+                                # --- Build & style the table (dark theme + sentiment pills) ---
+
+                                # --- Build & style the table (dark theme + sentiment pills) ---
+
+                                # --- Build the table -------------------------------------------------
+                                date_fmt = "%b %d, %Y"
+
+                                # label-only image sentiment (capitalised)
+                                img_label = (
+                                    df.get("prediction", pd.Series(index=df.index))
+                                    .apply(lambda x: (x or {}).get("label") if isinstance(x, dict) else "")
+                                    .fillna("")
+                                    .astype(str).str.strip().str.capitalize()
+                                )
+
+                                text_sent = (
+                                    df.get("sentiment_label", pd.Series(index=df.index))
+                                    .astype(str).str.strip().str.upper()
+                                    .map({"POSITIVE": "Positive", "NEUTRAL": "Neutral", "NEGATIVE": "Negative"})
+                                    .fillna("")
+                                )
+
                                 table = pd.DataFrame({
-                                    "Post": df.get("shortcode", pd.Series(index=df.index)).fillna(""),
-                                    "Date": df[ts_col].dt.strftime("%Y-%m-%d"),
-                                    "Image sentiment": df.get("prediction", pd.Series(index=df.index)).fillna(""),
-                                    "Text sentiment": df.get("sentiment_label", pd.Series(index=df.index)).fillna(""),
+                                    "Post ID": df.get("shortcode", pd.Series(index=df.index)).fillna(""),
+                                    "Date": df[ts_col].dt.strftime(date_fmt),
+                                    "Image sentiment": img_label,
+                                    "Text sentiment": text_sent,
                                     "Risk score": df["risk_score"],
                                 })
 
-                                # Sort by risk (highest first) and show top N
-                                N = st.slider("Rows to display", 5, 100, min(20, len(table)), key=f"post_table_rows_{username}")
+                                # --- Limit rows (max 9) & order by risk -----------------------------
+                                N = min(100, len(table))
                                 table = table.sort_values("Risk score", ascending=False).head(N)
 
-                                st.dataframe(
-                                    table,
-                                    use_container_width=True,
-                                    hide_index=True,
+                                # --- Row-number column (make it a REAL column, not index header) ----
+                                table.index = np.arange(1, len(table) + 1)   # 1..N
+                                table.index.name = "Row"
+                                table = table.reset_index()                   # Row becomes a normal column
+
+                                # --- Move Post ID to the END ----------------------------------------
+                                table = table[["Row", "Date", "Image sentiment", "Text sentiment", "Risk score", "Post ID"]]
+
+                                # --- Styling: dark table + no wrapping (one line per cell) ----------
+                                # --- Styling: dark table + no wrapping (one line per cell) ----------
+                                BG_DARK    = "#1e2630"
+                                BG_DARKER  = "#171d26"
+                                TEXT_COLOR = "#e6eaf0"
+                                GRID_COLOR = "rgba(255,255,255,0.08)"
+                                ROW_DIVIDER = "#D1D5DB"  # light grey bottom border between rows
+
+                                table_styles = [
+                                    {"selector": "table", "props": [
+                                        ("background-color", BG_DARK),
+                                        ("color", TEXT_COLOR),
+                                        ("border-collapse", "separate"),
+                                        ("border-spacing", "0"),
+                                        ("font-size", "0.95rem"),
+                                        ("table-layout", "auto"),
+                                    ]},
+                                    {"selector": "thead th", "props": [
+                                        ("background-color", BG_DARKER),
+                                        ("color", TEXT_COLOR),
+                                        ("border-bottom", f"1px solid {GRID_COLOR}"),
+                                        ("border-top", f"1px solid {GRID_COLOR}"),
+                                        ("padding", "10px 12px"),
+                                        ("font-weight", "600"),
+                                        ("letter-spacing", "0.02em"),
+                                        ("white-space", "nowrap"),
+                                        ("text-align", "center"),        # <-- center header text
+                                    ]},
+                                    {"selector": "tbody td, tbody th.row_heading", "props": [
+                                        ("border-bottom", f"1px solid {ROW_DIVIDER}"),  # <-- was GRID_COLOR
+                                        ("padding", "10px 12px"),
+                                        ("vertical-align", "middle"),
+                                        ("white-space", "nowrap"),
+                                        ("max-width", "none"),
+                                        ("text-align", "center"),
+                                    ]},
+                                ]
+
+                                # === Filled chip styles for sentiment labels (both columns) =========
+                                # === Sentiment text colors only (no background/border) ==============
+                                SENT_GREEN = "#1F7A3E"   # Positive
+                                SENT_RED   = "#B3392F"   # Negative
+                                SENT_AMBER = "#8A6D3B"   # Neutral
+                                
+
+
+                                def style_sentiment_color(col: pd.Series) -> list[str]:
+                                    css = []
+                                    for v in col.astype(str):
+                                        if v == "Positive":
+                                            css.append(f"color:{SENT_GREEN}; font-weight:600;")
+                                        elif v == "Negative":
+                                            css.append(f"color:{SENT_RED}; font-weight:600;")
+                                        elif v == "Neutral":
+                                            css.append(f"color:{SENT_AMBER}; font-weight:600;")
+                                        else:
+                                            css.append("")  # default styling
+                                    return css
+
+
+
+
+
+                                styled = (
+                                    table.style
+                                        .set_table_styles(table_styles)
+                                        .hide(axis="index")  # keep if you’re hiding the DF index
+                                        .set_properties(
+                                            subset=["Row", "Date", "Image sentiment", "Text sentiment", "Risk score", "Post ID"],
+                                            **{
+                                                "white-space": "nowrap",
+                                                "text-align": "center",
+                                                "font-family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
+                                            }
+                                        )
+                                        .set_properties(subset=["Post ID"], **{"font-family": "ui-monospace, Menlo, Consolas, monospace"})
+                                        .apply(style_sentiment_color, subset=["Image sentiment", "Text sentiment"])
                                 )
+
+
+
+
+                                # --- Cap card height with vertical scroll (keeps your styling) ------
+                                CARD_MAX_HEIGHT = 420  # match height of your other cards
+
+                                import streamlit.components.v1 as components
+
+                                html = f"""
+                                <style>
+                                html, body {{
+                                    background: transparent;
+                                    margin: 0; padding: 0;
+                                    font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; /* prevent Times fallback */
+                                }}
+                                .wrapper {{
+                                    max-height: {CARD_MAX_HEIGHT}px;   /* cap height like other cards */
+                                    overflow-y: auto;                  /* vertical scroll within card */
+                                    overflow-x: auto;                  /* horizontal if needed */
+                                    border: 1px solid rgba(255,255,255,0.08);
+                                    border-radius: 10px;
+                                    background: transparent;
+                                }}
+                                table {{ width: 100%; border-collapse: separate; border-spacing: 0; }}
+                                thead th {{ position: sticky; top: 0; z-index: 1; background: {BG_DARKER}; font-family: inherit; }}
+                                tbody td, tbody th {{ font-family: inherit; }}
+                                </style>
+                                <div class="wrapper">
+                                {styled.to_html()}
+                                </div>
+                                """
+
+                                # Disable iframe scrolling; let inner div handle it
+                                components.html(html, height=CARD_MAX_HEIGHT + 24, scrolling=False)
 
         except Exception as e:
             st.warning(f"Heatmap unavailable: {e}")
