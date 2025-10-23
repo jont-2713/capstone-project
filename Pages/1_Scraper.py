@@ -26,7 +26,7 @@ def wkey(role: str, user: str = "", place: str = "", idx: int | None = None):
 # ---------- style-------
 st.set_page_config(page_title="Capstone")
 
-# ↓ Add this block to tighten vertical spacing & column padding
+# Block to tighten vertical spacing & column padding
 st.markdown("""
 <style>
 /* reduce page padding a bit */
@@ -90,10 +90,6 @@ TEMP_ROOT = tempfile.mkdtemp(prefix="streamlit_static_")
 STATIC_DIR = os.path.join(TEMP_ROOT, "Static")
 os.makedirs(STATIC_DIR, exist_ok=True)
 
-# Input UI
-# Old Lines - save in case of error
-# usernames = st.text_input("Enter Instagram usernames (comma-separated):")
-# max_posts = st.slider("Max posts per user", 5, 500, 20)
 @atexit.register
 def _cleanup_temp_root():
     try:
@@ -188,11 +184,6 @@ def save_profile_header(profile, user_dir: str):
 
     return profile_json, profile_pic_path
 
-# ---------- Action ----------
-
-
-# if st.button("Download Posts"):
-#     if not usernames.strip():
 # ---------- Risk scoring (0..100) ----------
 def compute_risk(text_label: str, text_score: float,
                  img_label: Optional[str], img_conf: Optional[float]) -> Tuple[int, str]:
@@ -259,7 +250,7 @@ if do_scrape:
                     profile = instaloader.Profile.from_username(L.context, username)
                     status.update(label=f"Fetched profile: {username}")
 
-                # === NEW: persist a tiny profile bundle for the header (profile.json + profile.jpg)
+                # Create a tiny profile bundle for the header (profile.json + profile.jpg)
                 header_json, header_pic_path = save_profile_header(profile, user_dir)
 
                     
@@ -356,8 +347,6 @@ if do_scrape:
                     prog.progress(saved / target, text=f"Downloaded {saved}/{target}")
                     time.sleep(0.4)
 
-                    # prog.progress(min(i, total) / total, text=f"Downloaded {min(i, total)}/{total}")
-
                 # write metadata to disk inside temp user dir
                 meta_file = os.path.join(user_dir, "metadata.json")
                 with open(meta_file, "w", encoding="utf-8") as f:
@@ -369,8 +358,8 @@ if do_scrape:
                     "followers": profile.followers,
                     "followees": profile.followees,
                     "mediacount": profile.mediacount,
-                    "risk_counts": risk_counts,                               # NEW
-                    "avg_risk": int(round(risk_sum / max(1, len(meta_out)))) if meta_out else 0,  # NEW
+                    "risk_counts": risk_counts,                               
+                    "avg_risk": int(round(risk_sum / max(1, len(meta_out)))) if meta_out else 0,  
                     "user_dir": user_dir,
                     "meta_file": meta_file,
                     "posts": meta_out,
@@ -393,9 +382,7 @@ if do_scrape:
 if S["users"]:
     st.markdown("### Results Preview")
     
-    # ---- replace the whole tabs block with this card list ----
-    # --- Drop this in where the card-loop previously was (i.e., replacing that whole block) ---
-    # --- TABS RENDER (drop-in replacement for the tabs->cards section) ---
+    # --- TABS RENDER ---
     RUNS = S.get("runs", {})
     users = [u for u in S.get("users", []) if u in RUNS] or list(RUNS.keys())
 
