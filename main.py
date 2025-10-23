@@ -31,7 +31,7 @@ st.markdown("""
         }
         h2.title-sub {
             text-align: center;
-            color: #f5f5f5;
+            color: #2B2A2A;
             font-weight: 500;
             margin-top: 0.5rem;
         }
