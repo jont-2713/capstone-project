@@ -47,56 +47,13 @@ div[data-testid="stMetric"] > label {margin-bottom: 0.1rem; font-size: 0.9rem;}
 from Pages.Models.sentiment import analyze_sentiment
 
 # ---------- Image Sentiment Model ----------
-import os, json
-import numpy as np
-from PIL import Image
-import streamlit as st
-
-import torch
-
-MODEL_DIR  = os.path.join(os.path.dirname(__file__), "image-sentiment", "model")
-MODEL_PATH = os.path.join(MODEL_DIR, "resnet50_mvsa.torchscript.pt")
-META_PATH  = os.path.join(MODEL_DIR, "resnet50_mvsa.json")
-
-@st.cache_resource
-def load_model_and_meta():
-    # Load TorchScript model
-    model = torch.jit.load(MODEL_PATH, map_location="cpu").eval()
-    with open(META_PATH, "r", encoding="utf-8") as f:
-        meta = json.load(f)
-
-    label_names = meta.get("classes") or meta.get("label_names", ["Negative","Neutral","Positive"])
-    img_size    = int(meta.get("image_size", [224, 224])[0])
-    mean        = np.array(meta.get("mean", [0.485, 0.456, 0.406]), dtype=np.float32)
-    std         = np.array(meta.get("std",  [0.229, 0.224, 0.225]), dtype=np.float32)
-    return model, label_names, img_size, mean, std
-
-model, LABEL_NAMES, IMG_SIZE, MEAN, STD = load_model_and_meta()
-
-def preprocess_for_model(img_path: str, img_size: int) -> torch.Tensor:
-    img = Image.open(img_path).convert("RGB").resize((img_size, img_size))
-    arr = np.asarray(img, dtype=np.float32) / 255.0             # HWC in [0,1]
-    arr = (arr - MEAN) / STD                                    # normalise per channel
-    arr = np.transpose(arr, (2, 0, 1))                          # CHW
-    x = torch.from_numpy(arr).unsqueeze(0)                      # [1,3,H,W]
-    return x
-
-def predict_image(img_path: str):
-    x = preprocess_for_model(img_path, IMG_SIZE)
-    with torch.no_grad():
-        logits = model(x)
-        probs  = torch.softmax(logits, dim=1).cpu().numpy()[0]
-    pred_idx   = int(np.argmax(probs))
-    pred_label = LABEL_NAMES[pred_idx]
-    pred_conf  = float(probs[pred_idx])
-    return pred_label, pred_conf, probs.tolist()
-
+from Pages.Models.image_sentiment import predict_image
 
 # ---------- Setup ----------
 L = instaloader.Instaloader()
 L.context._session.cookies.set(
     "sessionid",
-    "76921770876%3A697JYvfmJGdmjA%3A9%3AAYhTosD0CEvVeTTt8771fhJUTLcz0KH6TteKjbu5BQ"
+    "#########################################################" # Paste sessionid here.
 )
 
 st.title("Instagram Scraper")
